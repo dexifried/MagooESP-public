@@ -86,10 +86,10 @@ with sync_playwright() as playwright:
     page.evaluate('currentTheme = 3')
     page.set_viewport_size({'width':320,'height':700})
     page.locator('#wifi-open').click()
-    assert page.locator('#pairing').evaluate("el => getComputedStyle(el).getPropertyValue('--pair-accent').trim()") == '#54ca81'
+    assert page.locator('#pairing').evaluate("el => getComputedStyle(el).getPropertyValue('--pair-accent').trim()") == '#ef3038'
     assert page.locator('#pairing').evaluate('el => el.scrollWidth <= el.clientWidth')
     page.evaluate('currentTheme = 1; makeThemes()')
-    assert page.locator('#pairing').evaluate("el => getComputedStyle(el).getPropertyValue('--pair-accent').trim()") == '#36bef0'
+    assert page.locator('#pairing').evaluate("el => getComputedStyle(el).getPropertyValue('--pair-accent').trim()") == '#ef3038'
     page.locator('#pair-continue').click()
     page.get_by_role('heading',name='Connect your phone to Magoo').wait_for()
     assert page.locator('#pair-open-setup').is_visible()

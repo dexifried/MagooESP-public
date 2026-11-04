@@ -7,10 +7,6 @@ const pairDialog = $('pairing');
 const pairWifiIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8 15a6 6 0 0 1 8 0"/><circle cx="12" cy="19" r="1"/></svg>';
 const pairArrow = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';
 
-function pairTheme() {
-  pairDialog.style.setProperty('--pair-accent', colors[currentTheme] || colors[0]);
-  pairDialog.style.setProperty('--pair-ink', currentTheme === 0 ? '#fff' : '#101214');
-}
 function pairShow(step) {
   pairStep = step;
   for (const el of pairDialog.querySelectorAll('[data-pair-screen]')) el.hidden = el.dataset.pairScreen !== step;
@@ -39,7 +35,7 @@ async function pairLoad() {
 }
 async function openPairing() {
   releaseWinch(); pairGeneration++; pairMode=0; pairSelection=null; pairDifferentPassword=false;
-  pairTheme(); pairShow('welcome');
+  pairShow('welcome');
   if (!pairDialog.open) pairDialog.showModal();
   try { await pairLoad(); } catch (_) { $('pair-welcome-status').textContent='Could not check saved networks. You can still continue.'; }
 }
