@@ -6,6 +6,7 @@
 #include "Imu.h"
 #include "Battery.h"
 #include "Winch.h"
+#include "WifiRecovery.h"
 #include "MagooApk.h"
 #include "DashboardPage.h"
 #include "DASHBOARD_SPEED.h"
@@ -51,8 +52,9 @@ constexpr int TRACK_COUNT = sizeof(tracks) / sizeof(tracks[0]);
 int trackIndex = 0;
 int nextTrack() { if (!shuffle) return (trackIndex + 1) % TRACK_COUNT; return (trackIndex + 1 + (int)(esp_random() % (TRACK_COUNT - 1))) % TRACK_COUNT; } uint32_t musicPositionMs = 0, musicLastTick = 0; bool musicPlaying = true;
 String pendingSsid, pendingPassword, connectionState = "Not configured", scanJson = "[]";
-bool connecting = false, newCredentials = false, wasConnected = false, scanning = false;
-int pendingSlot = 0; uint32_t nextRetry = 0;
+bool connecting = false, newCredentials = false, wasConnected = false, scanning = false, automaticScan = false;
+int pendingSlot = 0, activeSlot = -1, retrySlot = -1;
+uint32_t nextRetry = 0, nextHomeScan = 0;
 uint32_t connectStarted = 0;
 String jsonString(const String& value) {
   String out = "\"";
@@ -89,6 +91,21 @@ void connectHome(const String& ssid, const String& password, bool saveOnSuccess,
   WiFi.mode(WIFI_AP_STA); WiFi.setAutoReconnect(false); WiFi.disconnect(false, false);
   WiFi.begin(pendingSsid.c_str(), pendingPassword.c_str());
   connecting = true; wasConnected = false; connectStarted = millis(); connectionState = "Connecting";
+}
+String savedNetwork(int slot) { return prefs.getString(slot == 1 ? "hot_ssid" : "wifi_ssid", ""); }
+bool savedNetworkAvailable(int slot) { if (slot < 0 || slot > 1) return false; const String name = savedNetwork(slot); return name.length() && name != "MagooESP"; }
+bool connectSaved(int slot) {
+  if (slot < 0 || !savedNetworkAvailable(slot)) return false;
+  connectHome(savedNetwork(slot), prefs.getString(slot == 1 ? "hot_pass" : "wifi_pass", ""), false, slot);
+  return true;
+}
+bool startNetworkScan(bool automatic) {
+  if (connecting || scanning) return false;
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.scanDelete();
+  if (WiFi.scanNetworks(true, false, false, 120) == WIFI_SCAN_FAILED) return false;
+  scanning = true; automaticScan = automatic;
+  return true;
 }
 float demoSpeed() { return 4.0f + 4.0f * sinf(millis() * 0.00018f - 1.0f); }
 
@@ -335,26 +352,34 @@ bool phoneControlBegin() {
   server.on("/scan", HTTP_POST, [] {
     if (server.client().localIP() != WiFi.softAPIP()) { server.send(403, "text/plain", "Connect to MagooESP"); return; }
     if (connecting || scanning) { server.send(409, "text/plain", "Wi-Fi busy"); return; }
-    const bool hadConnection = WiFi.status() == WL_CONNECTED;
-    WiFi.mode(WIFI_AP_STA); WiFi.setAutoConnect(false);
-    if (!hadConnection) { WiFi.setAutoReconnect(false); WiFi.disconnect(false, true); }
-    WiFi.scanDelete();
-    int result = WiFi.scanNetworks(true, false, false, 1000);
-    if (result == WIFI_SCAN_FAILED) { if (WiFi.status() != WL_CONNECTED) WiFi.mode(WIFI_AP); server.send(500, "text/plain", "Scan failed"); return; }
-    phoneActivity = true; scanning = true; scanJson = "[]"; server.send(200, "text/plain", "Scanning");
+    if (!startNetworkScan(false)) { server.send(500, "text/plain", "Scan failed"); return; }
+    phoneActivity = true; server.send(200, "text/plain", "Scanning");
   });
-  server.on("/networks", HTTP_GET, [] { server.send(200, "application/json", String("{\"scanning\":") + (scanning ? "true" : "false") + ",\"networks\":" + scanJson + "}"); });
+  server.on("/networks", HTTP_GET, [] {
+    String saved = "[";
+    for (int slot = 0; slot < 2; ++slot) if (savedNetworkAvailable(slot)) {
+      if (saved.length() > 1) saved += ',';
+      saved += String("{\"ssid\":") + jsonString(savedNetwork(slot)) + ",\"slot\":" + slot + "}";
+    }
+    saved += ']';
+    server.send(200, "application/json", String("{\"scanning\":") + (scanning ? "true" : "false") + ",\"networks\":" + scanJson + ",\"saved\":" + saved + ",\"activeSlot\":" + (WiFi.status() == WL_CONNECTED ? activeSlot : -1) + "}");
+  });
   server.on("/wifi", HTTP_POST, [] {
     if (server.client().localIP() != WiFi.softAPIP()) { server.send(403, "text/plain", "Connect to MagooESP"); return; }
     if (scanning) { server.send(409, "text/plain", "Wait for scan"); return; }
     if (!server.hasArg("ssid") || !server.hasArg("password")) { server.send(400, "text/plain", "Missing credentials"); return; }
     const String ssid = server.arg("ssid"), password = server.arg("password"), slot = server.arg("slot");
     if (slot != "" && slot != "0" && slot != "1") { server.send(400, "text/plain", "Invalid slot"); return; }
+    if (server.arg("useSaved") == "1") {
+      const int savedSlot = slot == "1" ? 1 : 0;
+      if (!savedNetworkAvailable(savedSlot) || savedNetwork(savedSlot) != ssid) { server.send(400, "text/plain", "Saved network unavailable"); return; }
+      phoneActivity = true; server.send(200, "text/plain", "Connecting"); connectSaved(savedSlot); return;
+    }
     if (ssid == "MagooESP" || ssid.length() < 1 || ssid.length() > 32 || password.length() > 63 || (password.length() > 0 && password.length() < 8)) { server.send(400, "text/plain", "Invalid Wi-Fi credentials"); return; }
     phoneActivity = true; server.send(200, "text/plain", "Connecting"); connectHome(ssid, password, true, slot == "1" ? 1 : 0);
   });
   server.onNotFound([] { server.send(404, "text/plain", "Not found"); }); server.begin();
-  const String savedSsid = prefs.getString("wifi_ssid", ""); if (savedSsid.length() && savedSsid != "MagooESP") connectHome(savedSsid, prefs.getString("wifi_pass", ""), false); else if (prefs.getString("hot_ssid", "").length()) connectHome(prefs.getString("hot_ssid", ""), prefs.getString("hot_pass", ""), false, 1);
+  connectSaved(wifiInitialSlot(savedNetworkAvailable(0), savedNetworkAvailable(1)));
   Serial.printf("Phone Wi-Fi: MagooESP; address: http://%s\n", WiFi.softAPIP().toString().c_str()); return true;
 }
 void phoneControlPoll() {
@@ -381,36 +406,54 @@ void phoneControlPoll() {
     const int count = WiFi.scanComplete();
     if (count != WIFI_SCAN_RUNNING) {
       Serial.printf("Wi-Fi scan result: %d\n", count);
-      scanJson = "["; bool first = true;
+      scanJson = "["; bool first = true, homeVisible = false;
       for (int i = 0; i < count; ++i) {
         String name = WiFi.SSID(i); if (!name.length() || name == "MagooESP") continue;
+        if (name == savedNetwork(0)) homeVisible = true;
         bool duplicate = false; for (int j = 0; j < i; ++j) if (WiFi.SSID(j) == name) { duplicate = true; break; }
         if (duplicate) continue; if (!first) scanJson += ","; first = false;
         scanJson += String("{\"ssid\":") + jsonString(name) + ",\"rssi\":" + String(WiFi.RSSI(i)) + ",\"secured\":" + (WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "false" : "true") + "}";
       }
       scanJson += "]"; WiFi.scanDelete(); scanning = false;
-      if (WiFi.status() != WL_CONNECTED && !connecting) WiFi.mode(WIFI_AP);
+      if (automaticScan && count >= 0 && WiFi.status() == WL_CONNECTED &&
+          wifiShouldReturnHome(activeSlot, savedNetworkAvailable(0), homeVisible, winchDirection() == 'S')) {
+        nextHomeScan = millis() + 120000;
+        connectSaved(0);
+      }
+      automaticScan = false;
     }
   }
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !wasConnected) {
     if (connecting && newCredentials) { prefs.putString(pendingSlot ? "hot_ssid" : "wifi_ssid", pendingSsid); prefs.putString(pendingSlot ? "hot_pass" : "wifi_pass", pendingPassword); }
-    pendingPassword = ""; connecting = false; connectionState = "Connected"; WiFi.setAutoReconnect(true);
+    if (connecting) activeSlot = pendingSlot;
+    pendingPassword = ""; connecting = false; newCredentials = false; nextRetry = 0; connectionState = "Connected"; WiFi.setAutoReconnect(false);
+    if (activeSlot == 1 && (!nextHomeScan || (int32_t)(millis() - nextHomeScan) >= 0)) nextHomeScan = millis() + 60000;
     MDNS.end(); if (MDNS.begin("magooesp")) MDNS.addService("http", "tcp", 80);
     Serial.printf("Home Wi-Fi connected; IP: %s; host: magooesp.local\n", WiFi.localIP().toString().c_str());
-  } else if (!connected && wasConnected) { connectionState = "Disconnected"; nextRetry = millis() + 5000; Serial.println("Home Wi-Fi disconnected; MagooESP remains available"); }
+  } else if (!connected && wasConnected) {
+    connectionState = "Disconnected";
+    retrySlot = wifiNextSlot(activeSlot, savedNetworkAvailable(0), savedNetworkAvailable(1));
+    nextRetry = millis() + 3000;
+    Serial.println("Wi-Fi disconnected; switching saved network");
+  }
   wasConnected = connected;
   if (connecting && !connected && (uint32_t)(millis() - connectStarted) > 25000) {
     connecting = false; pendingPassword = ""; connectionState = "Connection failed";
-    WiFi.disconnect(false, false); WiFi.mode(WIFI_AP);
-    if (!newCredentials && pendingSlot == 0 && prefs.getString("hot_ssid", "").length()) {
-      connectHome(prefs.getString("hot_ssid", ""), prefs.getString("hot_pass", ""), false, 1);
-    } else { nextRetry = millis() + 60000; }
+    WiFi.disconnect(false, false);
+    retrySlot = newCredentials && savedNetworkAvailable(activeSlot) ? activeSlot : wifiNextSlot(pendingSlot, savedNetworkAvailable(0), savedNetworkAvailable(1));
+    newCredentials = false;
+    nextRetry = millis() + (retrySlot >= 0 && retrySlot != pendingSlot ? 1000 : 60000);
     Serial.println("Wi-Fi connection failed; recovery hotspot available");
   }
   if (!connected && !connecting && !scanning && nextRetry && (int32_t)(millis() - nextRetry) >= 0) {
-    nextRetry = 0; String ssid = prefs.getString("wifi_ssid", "");
-    if (ssid.length() && ssid != "MagooESP") connectHome(ssid, prefs.getString("wifi_pass", ""), false, 0);
+    nextRetry = 0;
+    connectSaved(retrySlot);
+  }
+  if (connected && !connecting && !scanning && activeSlot == 1 && savedNetworkAvailable(0) &&
+      winchDirection() == 'S' && nextHomeScan && (int32_t)(millis() - nextHomeScan) >= 0) {
+    nextHomeScan = millis() + 60000;
+    startNetworkScan(true);
   }
 }
 Telemetry phoneControlTelemetry() { Telemetry t; const ThrottleReading throttle = throttleRead(); const ImuReading tilt = imuReading(); const BatteryReading battery = batteryReading(); t.voltageAvailable = battery.voltageAvailable; t.voltage = battery.voltage; t.driveDirection = driveReading.gear; t.tiltAvailable = tilt.valid; t.pitch = tilt.pitch; t.roll = tilt.roll; t.colorTheme = selectedTheme; t.homeMapStyle = homeStyle; t.speedKph = driveReading.speed; t.speedAvailable = true; t.rpm = driveReading.rpm; t.rpmAvailable = true; t.theme = selectedView == 4 ? 7 : selectedView == 3 ? (homeLayout == 1 ? 4 : (homeLayout == 2 ? 5 : 6)) : (selectedView == 2 ? 5 : (selectedView == 1 ? 4 : selectedTheme)); t.demo = !throttle.valid; t.trackTitle=tracks[trackIndex].title; t.trackArtist=tracks[trackIndex].artist; t.trackDuration=tracks[trackIndex].duration; t.trackPosition=musicPositionMs/1000; t.trackArt=tracks[trackIndex].art; t.trackPlaying=musicPlaying; return t; }
