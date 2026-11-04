@@ -33,7 +33,7 @@ with sync_playwright() as playwright:
         if path=='/tilt/zero':return r.fulfill(status=200 if state['tilt_ok'] else 409,body='OK' if state['tilt_ok'] else 'Tilt sensor unavailable')
         if path=='/playlist':return r.fulfill(json=[])
         if path=='/screen':return r.fulfill(status=204)
-        if path in ('/','/dashboard.html','/pairing.css','/pairing.js','/dashboard-polish.css') or path.endswith('.jpg'):return r.continue_()
+        if path in ('/','/dashboard.html','/pairing.css','/pairing.js','/frame-delta.js','/dashboard-polish.css') or path.endswith('.jpg'):return r.continue_()
         return r.fulfill(status=200,body='OK')
     page.route('**/*',route);page.goto(f'http://127.0.0.1:{server.server_address[1]}/dashboard.html')
     page.get_by_text('Vehicle status',exact=True).wait_for()

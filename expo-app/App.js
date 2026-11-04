@@ -6,13 +6,14 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 import dashboard from './dashboard.generated';
+const { GpsDemand } = require('./gps-demand');
 
 const HOST_KEY = 'magoo:address';
 const DEFAULT_HOST = 'magooesp.local';
 const AP_HOST = '192.168.4.1';
 const MAX_TILES = 100;
 const GET_PATHS = new Set(['/status', '/winch/status', '/screen', '/playlist', '/networks']);
-const POST_PATHS = new Set(['/appearance', '/gear/calibrate', '/layout', '/map', '/music', '/scan', '/sleep', '/startup', '/theme', '/tilt/zero', '/touch', '/view', '/wifi', '/winch', '/winch/reverse']);
+const POST_PATHS = new Set(['/appearance', '/gear/calibrate', '/layout', '/map', '/map/refresh', '/music', '/scan', '/screen-delta', '/sleep', '/startup', '/theme', '/tilt/zero', '/touch', '/view', '/wifi', '/winch', '/winch/reverse']);
 const postOptions = body => ({ method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
 
 function validHost(value) { return /^[a-zA-Z0-9.-]{1,253}$/.test(value) && !value.startsWith('.') && !value.endsWith('.'); }
@@ -25,7 +26,7 @@ function blobData(blob) { return new Promise((resolve, reject) => { const reader
 
 function Magoo() {
   const web = useRef(null), hostRef = useRef(DEFAULT_HOST), active = useRef(true), foreground = useRef(true), winchHeld = useRef(false);
-  const subscription = useRef(null), gpsTimer = useRef(null), gpsRun = useRef(0), lastFix = useRef(null), tileWork = useRef(new Map());
+  const gpsRun = useRef(0), lastFix = useRef(null), tileWork = useRef(new Map());
   const requests = useRef(new Map()), networkEpoch = useRef(0);
   const [host, setHost] = useState(null), [address, setAddress] = useState(DEFAULT_HOST), [modal, setModal] = useState(null);
   const [gpsOn, setGpsOn] = useState(false), [gpsStatus, setGpsStatus] = useState('Location sharing is off.');
@@ -48,46 +49,62 @@ function Magoo() {
     if (mounted) { hostRef.current = selected; setAddress(selected); setHost(selected); }
   })(); return () => { mounted = false; }; }, []);
 
-  const stopGps = useCallback((message = 'Location sharing is off.') => {
-    inject('window.__magooStopGps && window.__magooStopGps()');
-    gpsRun.current++; subscription.current?.remove(); subscription.current = null;
-    if (gpsTimer.current) clearInterval(gpsTimer.current); gpsTimer.current = null; lastFix.current = null;
-    setGpsOn(false); setGpsStatus(message);
-  }, [inject]);
   const deliverFix = useCallback(fix => {
     if (!fix || !active.current) return;
     const c = fix.coords;
     inject('window.__magooApplyLocation && window.__magooApplyLocation(' + JSON.stringify({ latitude: c.latitude, longitude: c.longitude, heading: c.heading, speed: c.speed, timestamp: fix.timestamp }) + ')');
   }, [inject]);
-  const startGps = useCallback(async () => {
-    const run = ++gpsRun.current; setGpsStatus('Requesting location permission…');
-    try {
-      const result = await Location.requestForegroundPermissionsAsync();
-      if (run !== gpsRun.current) return;
-      if (!active.current) { setGpsStatus('Open Magoo and try starting location again.'); return; }
-      if (result.status !== 'granted') { setGpsStatus('Location permission was not granted.'); return; }
-      setGpsStatus('Waiting for a location…');
+  const gpsController = useMemo(() => new GpsDemand({
+    start: async isCurrent => {
+      if (active.current) setGpsStatus('Waiting for a location…');
       const watcher = await Location.watchPositionAsync({ accuracy: Location.Accuracy.Balanced, timeInterval: 4000, distanceInterval: 0 }, fix => {
-        if (run !== gpsRun.current || !active.current) return;
-        lastFix.current = fix; deliverFix(fix);
-      }, () => setGpsStatus('Could not get location. Check phone location settings.'));
-      if (run !== gpsRun.current || !active.current) { watcher.remove(); return; }
-      subscription.current = watcher; setGpsOn(true);
-      gpsTimer.current = setInterval(async () => {
-        if (run !== gpsRun.current || !active.current) return;
+        if (!isCurrent() || !active.current) return;
+        lastFix.current=fix;deliverFix(fix);
+      }, () => { if (isCurrent() && active.current) setGpsStatus('Could not get location. Check phone location settings.'); });
+      if (!isCurrent()) return () => watcher.remove();
+      let acquiring=false;
+      const timer=setInterval(async () => {
+        if (!isCurrent() || !active.current || acquiring) return;
+        acquiring=true;
         try {
-          let fix = lastFix.current;
-          if (!fix || Date.now() - fix.timestamp > 8000) fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          if (run === gpsRun.current && active.current) { lastFix.current = fix; deliverFix(fix); }
-        } catch (_) { if (run === gpsRun.current) setGpsStatus('Waiting for a fresh phone location.'); }
-      }, 10000);
-    } catch (_) { if (run === gpsRun.current) setGpsStatus('Could not start location sharing.'); }
-  }, [deliverFix]);
+          let fix=lastFix.current;
+          if (!fix || Date.now()-fix.timestamp>8000) fix=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.Balanced});
+          if (isCurrent() && active.current) { lastFix.current=fix;deliverFix(fix); }
+        } catch (_) { if(isCurrent() && active.current)setGpsStatus('Waiting for a fresh phone location.'); }
+        finally { acquiring=false; }
+      },10000);
+      return () => { watcher.remove();clearInterval(timer); };
+    },
+    pause: () => { inject('window.__magooStopGps && window.__magooStopGps()');lastFix.current=null;if(active.current)setGpsStatus('Location paused until the map is shown.'); },
+    error: () => { if(active.current)setGpsStatus('Could not start location sharing.'); }
+  }), [deliverFix,inject]);
+  const stopGps = useCallback((message = 'Location sharing is off.') => {
+    gpsRun.current++;gpsController.setEnabled(false);
+    inject('window.__magooStopGps && window.__magooStopGps()');lastFix.current=null;
+    setGpsOn(false);setGpsStatus(message);
+  }, [gpsController,inject]);
+  const startGps = useCallback(async () => {
+    const run=++gpsRun.current;setGpsStatus('Requesting location permission…');
+    try {
+      const result=await Location.requestForegroundPermissionsAsync();
+      if(run!==gpsRun.current)return;
+      if(!active.current){setGpsStatus('Open Magoo and try starting location again.');return;}
+      if(result.status!=='granted'){setGpsStatus('Location permission was not granted.');return;}
+      setGpsOn(true);gpsController.setEnabled(true);
+      if(!gpsController.demand)setGpsStatus('Location paused until the map is shown.');
+    } catch (_) { if(run===gpsRun.current)setGpsStatus('Could not start location sharing.'); }
+  }, [gpsController]);
   useEffect(() => {
+    const initial=AppState.currentState;
+    active.current=initial!=='background';foreground.current=!initial||initial==='active';
+    gpsController.setActive(foreground.current);
     const listener = AppState.addEventListener('change', state => {
       active.current = state !== 'background';
       foreground.current = state === 'active';
+      gpsController.setActive(state === 'active');
+      inject('window.__magooSetAppActive && window.__magooSetAppActive(' + (state === 'active') + ')');
       if (state !== 'active') {
+        for (const item of requests.current.values()) if (['/status','/screen','/screen-delta'].includes(item.path)) item.controller.abort();
         inject("if(typeof releaseWinch==='function')releaseWinch()");
         if (winchHeld.current) {
           winchHeld.current = false;
@@ -97,8 +114,8 @@ function Magoo() {
         if (state === 'background') stopGps('Location sharing stopped when Magoo went to the background.');
       }
     });
-    return () => { listener.remove(); gpsRun.current++; subscription.current?.remove(); if (gpsTimer.current) clearInterval(gpsTimer.current); for (const item of requests.current.values()) item.controller.abort(); requests.current.clear(); };
-  }, [inject, stopGps]);
+    return () => { listener.remove(); active.current=false; gpsRun.current++; gpsController.setEnabled(false); for (const item of requests.current.values()) item.controller.abort(); requests.current.clear(); };
+  }, [inject, stopGps, gpsController]);
 
   const getTile = useCallback(async (z, x, y) => {
     if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) || z < 14 || z > 18 || x < 0 || y < 0 || x >= 2**z || y >= 2**z) throw new Error('Invalid map tile');
@@ -125,6 +142,7 @@ function Magoo() {
   const onMessage = useCallback(async event => {
     let message; try { message = JSON.parse(event.nativeEvent.data); } catch (_) { return; }
     if (message.type === 'gps-controls') { setModal('gps'); return; }
+    if (message.type === 'gps-demand' && typeof message.value === 'boolean') { gpsController.setDemand(message.value); return; }
     if (message.type === 'device-address') { setAddress(hostRef.current); setModal('address'); return; }
     if (message.type === 'setup-address') { await setDevice(AP_HOST); return; }
     if (message.type === 'winch-active') { winchHeld.current = !!message.value; return; }
@@ -145,7 +163,7 @@ function Magoo() {
           if (method === 'POST') { options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' }; options.body = message.body || ''; }
           const response = await fetch('http://' + hostRef.current + path, options);
           result.status = response.status; result.headers = { 'x-display-state': response.headers.get('x-display-state') };
-          if (path === '/screen' && response.status === 200) {
+          if ((path === '/screen' || path === '/screen-delta') && response.status === 200) {
             const data = await blobData(await response.blob()); result.base64 = String(data).split(',')[1] || '';
           } else result.text = await response.text();
         } catch (error) { result.error = error.message || 'Magoo connection unavailable'; }
@@ -159,7 +177,7 @@ function Magoo() {
       try { result.data = await getTile(message.z, message.x, message.y); } catch (error) { result.error = error.message; }
       if (epoch === networkEpoch.current) inject('window.__magooTileResult && window.__magooTileResult(' + JSON.stringify(result) + ')');
     }
-  }, [getTile, inject, setDevice]);
+  }, [getTile, inject, setDevice, gpsController]);
 
   return <SafeAreaProvider><SafeAreaView style={styles.screen} edges={['top', 'bottom']}><StatusBar style="light" />
     {source ? <WebView ref={web} source={source} originWhitelist={['*']} onMessage={onMessage} javaScriptEnabled domStorageEnabled

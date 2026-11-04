@@ -1,4 +1,5 @@
 #include "PhoneControl.h"
+#include "FrameDelta.h"
 #include "DashboardLayout.h"
 #include "Throttle.h"
 #include "ThrottleDirection.h"
@@ -26,6 +27,7 @@
 namespace {
 WebServer server(80); Preferences prefs;
 MapFrame mapFrame = {};
+uint32_t mapToken = 0;
 bool replayStartup = false;
 bool startupActive = false;
 bool displaySleeping = false;
@@ -38,7 +40,11 @@ uint32_t mirrorResumeAt = 0;
 const uint16_t* screenBuffer = nullptr;
 WiFiClient mirrorClient;
 uint8_t* mirrorSnapshot = nullptr;
+const uint8_t* mirrorData = nullptr;
 size_t mirrorSent = 0;
+size_t mirrorLength = 0;
+bool mirrorBorrowed = false;
+uint32_t mirrorStarted = 0;
 uint32_t mirrorLastProgress = 0;
 constexpr size_t MIRROR_BYTES = 240 * 135 * sizeof(uint16_t);
 float selectedSpeed = 0; unsigned selectedTheme = 0, selectedView = 0, homeLayout = 0, homeStyle = 0; bool demo = false, shuffle = false, bootAnimation = true;
@@ -109,24 +115,26 @@ bool startNetworkScan(bool automatic) {
   scanning = true; automaticScan = automatic;
   return true;
 }
-float demoSpeed() { return 4.0f + 4.0f * sinf(millis() * 0.00018f - 1.0f); }
+float demoSpeed() { return 5.2f + 5.2f * sinf(millis() * 0.00018f - 1.0f); }
 
 void finishMirror() {
   mirrorClient.stop();
   free(mirrorSnapshot);
   mirrorSnapshot = nullptr;
-  mirrorSent = 0;
+  mirrorData = nullptr; mirrorSent = mirrorLength = 0; mirrorBorrowed = false;
 }
 void serviceMirror() {
-  if (!mirrorSnapshot) return;
-  if (!mirrorClient.connected() || uint32_t(millis() - mirrorLastProgress) > 8000) { finishMirror(); return; }
-  for (int chunk = 0; chunk < 4 && mirrorSnapshot; ++chunk) {
-    const size_t length = min(size_t(2048), MIRROR_BYTES - mirrorSent);
-    const int written = lwip_send(mirrorClient.fd(), mirrorSnapshot + mirrorSent, length, MSG_DONTWAIT);
+  if (!mirrorData) return;
+  if (!mirrorClient.connected() || uint32_t(millis() - mirrorLastProgress) > 8000 ||
+      (mirrorBorrowed && uint32_t(millis() - mirrorStarted) > 1500)) { finishMirror(); return; }
+  const bool winching=winchDirection()!='S';
+  for (int chunk = 0; chunk < (winching?1:4) && mirrorData; ++chunk) {
+    const size_t length = min(size_t(winching?512:2048), mirrorLength - mirrorSent);
+    const int written = lwip_send(mirrorClient.fd(), mirrorData + mirrorSent, length, MSG_DONTWAIT);
     if (written > 0) {
       mirrorSent += size_t(written);
       mirrorLastProgress = millis();
-      if (mirrorSent == MIRROR_BYTES) finishMirror();
+      if (mirrorSent == mirrorLength) finishMirror();
     } else {
       if (written < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) finishMirror();
       break;
@@ -241,7 +249,21 @@ bool phoneControlBegin() {
       mapFrame.pixels[i] = ((hi <= '9' ? hi-'0' : hi-'a'+10) << 4) | (lo <= '9' ? lo-'0' : lo-'a'+10);
     }
     mapFrame.hasBearing = bearing >= 0; mapFrame.bearing = bearing;
-    mapFrame.receivedAt = millis() - fixAgeMs; mapFrame.valid = true;
+    mapFrame.receivedAt = millis() - fixAgeMs; mapFrame.valid = true; ++mapFrame.revision;
+    mapToken=esp_random(); if (!mapToken) mapToken=1;
+    server.send(200, "text/plain", String("OK:")+String(mapToken,HEX));
+  });
+  server.on("/map/refresh", HTTP_POST, [] {
+    if (!mapFrame.valid || !mapToken || server.arg("token")!=String(mapToken,HEX)) { server.send(409, "text/plain", "Map changed"); return; }
+    if (!server.hasArg("bearing") || !server.hasArg("ageMs")) { server.send(400, "text/plain", "Missing location"); return; }
+    const String direction=server.arg("bearing"),age=server.arg("ageMs"); char *end=nullptr,*ageEnd=nullptr;
+    const float bearing=strtof(direction.c_str(),&end);
+    const unsigned long fixAgeMs=strtoul(age.c_str(),&ageEnd,10);
+    if (end==direction.c_str() || *end || !isfinite(bearing) || bearing < -1 || bearing >= 360 ||
+        !age.length() || age[0]<'0' || age[0]>'9' || *ageEnd || fixAgeMs>25000) { server.send(400, "text/plain", "Invalid location"); return; }
+    const bool hasBearing=bearing>=0;
+    if (mapFrame.hasBearing!=hasBearing || (hasBearing && mapFrame.bearing!=bearing)) ++mapFrame.revision;
+    mapFrame.hasBearing=hasBearing; mapFrame.bearing=bearing; mapFrame.receivedAt=millis()-uint32_t(fixAgeMs);
     server.send(200, "text/plain", "OK");
   });
   server.on("/screen", HTTP_GET, [] {
@@ -249,28 +271,37 @@ bool phoneControlBegin() {
     if (startupActive || (mirrorHeld && (int32_t)(millis() - mirrorResumeAt) < 0)) { server.sendHeader("X-Display-State", "startup"); server.send(204); return; }
     mirrorHeld = false;
     if (!screenBuffer) { server.send(503, "text/plain", "Display unavailable"); return; }
-    // A private copy keeps the mirror coherent while rendering and sensor
-    // sampling continue. Fall back to the original synchronous path if RAM
-    // is tight rather than losing the mirror feature.
-    bool newSnapshot = false;
-    if (!mirrorSnapshot && ESP.getFreeHeap() > MIRROR_BYTES + 70000) {
+    if (mirrorData) { server.send(503, "text/plain", "Display transfer busy"); return; }
+    // Prefer a private copy. If memory is tight, briefly borrow the framebuffer
+    // and pause its redraw instead of blocking the control loop on a slow client.
+    if (ESP.getFreeHeap() > MIRROR_BYTES + 70000) {
       mirrorSnapshot = static_cast<uint8_t*>(malloc(MIRROR_BYTES));
-      if (mirrorSnapshot) { memcpy(mirrorSnapshot, screenBuffer, MIRROR_BYTES); newSnapshot = true; }
+      if (mirrorSnapshot) memcpy(mirrorSnapshot, screenBuffer, MIRROR_BYTES);
     }
+    mirrorBorrowed=!mirrorSnapshot;
+    mirrorData=mirrorSnapshot ? mirrorSnapshot : reinterpret_cast<const uint8_t*>(screenBuffer);
+    mirrorLength=MIRROR_BYTES;
     server.sendHeader("Cache-Control", "no-store");
     server.setContentLength(MIRROR_BYTES); server.send(200, "application/octet-stream", "");
-    if (newSnapshot) {
-      mirrorClient = server.client();
-      mirrorSent = 0; mirrorLastProgress = millis();
-      return;
-    }
-    WiFiClient client = server.client();
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(screenBuffer);
-    size_t sent = 0;
-    while (sent < MIRROR_BYTES && client.connected()) {
-      const size_t amount = client.write(bytes + sent, min((size_t)2048, MIRROR_BYTES - sent));
-      if (!amount) break; sent += amount;
-    }
+    mirrorClient = server.client(); mirrorSent = 0; mirrorLastProgress = mirrorStarted = millis();
+  });
+  server.on("/screen-delta", HTTP_POST, [] {
+    if (displaySleeping) { server.sendHeader("X-Display-State", "sleep"); server.send(204); return; }
+    if (startupActive || (mirrorHeld && (int32_t)(millis() - mirrorResumeAt) < 0)) { server.sendHeader("X-Display-State", "startup"); server.send(204); return; }
+    mirrorHeld=false;
+    if (!screenBuffer || mirrorData) { server.send(503, "text/plain", "Display transfer busy"); return; }
+    const String hashes=server.arg("hashes"); uint32_t parsed[FrameDelta::TILE_COUNT];
+    if (!FrameDelta::parseHashes(hashes.c_str(),hashes.length(),parsed)) { server.send(400, "text/plain", "Invalid frame cache"); return; }
+    const FrameDelta::Plan changes=FrameDelta::plan(screenBuffer,parsed);
+    if (ESP.getFreeHeap() < changes.bytes+40000) { server.send(503, "text/plain", "Display memory busy"); return; }
+    mirrorSnapshot=static_cast<uint8_t*>(malloc(changes.bytes));
+    if (!mirrorSnapshot) { server.send(503, "text/plain", "Display memory busy"); return; }
+    mirrorLength=FrameDelta::encode(screenBuffer,changes,mirrorSnapshot,changes.bytes);
+    if (!mirrorLength) { free(mirrorSnapshot); mirrorSnapshot=nullptr; server.send(500, "text/plain", "Display encoding failed"); return; }
+    mirrorData=mirrorSnapshot; mirrorBorrowed=false;
+    server.sendHeader("Cache-Control", "no-store");
+    server.setContentLength(mirrorLength); server.send(200, "application/octet-stream", "");
+    mirrorClient=server.client(); mirrorSent=0; mirrorLastProgress=mirrorStarted=millis();
   });
   server.on("/touch", HTTP_POST, [] {
     if (displaySleeping) { server.send(409, "text/plain", "Display is asleep"); return; }
@@ -409,8 +440,8 @@ void phoneControlPoll() {
       ? throttleDirection(true,throttle.pulseUs,gearCalibrated,gearNeutralUs,gearForwardHigh)
       : 'D'; // The existing no-receiver demo simulates forward driving.
   const float target=throttle.valid
-      ? throttleEstimatedSpeed(throttle.pulseUs,gearCalibrated ? gearNeutralUs : 1500)*10.0f
-      : demoSpeed()*10.0f;
+      ? simulatedThrottleTarget(throttleEstimatedSpeed(throttle.pulseUs,gearCalibrated ? gearNeutralUs : 1500), sinf(driveNow*0.00065f))
+      : demoSpeed();
   const float dt=lastDriveUpdate ? uint32_t(driveNow-lastDriveUpdate)*0.001f : 0.05f;
   lastDriveUpdate=driveNow;
   driveReading=simulatedDrive.update(command,target,dt);
@@ -487,6 +518,8 @@ const MapFrame& phoneControlMap() { return mapFrame; }
 
 
 void phoneControlSetFramebuffer(const uint16_t* pixels) { screenBuffer = pixels; }
+bool phoneControlFrameBorrowed() { return mirrorBorrowed && mirrorData; }
+void phoneControlCancelMirror() { if (mirrorData) finishMirror(); }
 
 bool phoneControlConsumeStartupRequest() { const bool requested = replayStartup; replayStartup = false; return requested; }
 

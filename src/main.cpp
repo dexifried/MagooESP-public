@@ -103,6 +103,8 @@ void loop() {
   }
   const bool shouldSleep=phoneControlSleeping();
   if (shouldSleep!=displayAsleep) {
+    phoneControlCancelMirror();
+    dashboard.invalidate();
     displayAsleep=shouldSleep;
     if (displayAsleep) {
       dashboard.cancelStartup();
@@ -130,12 +132,13 @@ void loop() {
     Serial.println(dimmed ? "IDLE DIM" : "DISPLAY BRIGHT");
   }
   if (phoneControlConsumeStartupRequest()) {
+    phoneControlCancelMirror();
     dashboard.startup(phoneControlTelemetry().colorTheme);
     phoneControlSetStartupActive(true);
   }
   const bool animating=dashboard.animateStartup(now,phoneControlTelemetry());
   phoneControlSetStartupActive(animating);
-  if (!animating && now-lastFrame>=50) { lastFrame=now; dashboard.render(phoneControlTelemetry()); }
+  if (!animating && !phoneControlFrameBorrowed() && now-lastFrame>=50) { lastFrame=now; dashboard.render(phoneControlTelemetry()); }
   if (now-lastLog>=5000) {
     lastLog=now;
     Serial.printf("THROTTLE %s pulse=%u us estimated=%.1f km/h heap=%u\n", throttle.valid ? "SIGNAL" : "NO_SIGNAL",throttle.pulseUs,throttle.speedKph,ESP.getFreeHeap());

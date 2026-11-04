@@ -5,11 +5,14 @@
 
 namespace {
 constexpr int SDA_PIN=25, SCL_PIN=13;
-constexpr uint32_t SAMPLE_MS=500, RETRY_MS=3000, STALE_MS=2000;
+constexpr uint32_t SAMPLE_MS=500, RETRY_MS=3000, RETRY_MAX_MS=12000, STALE_MS=2000;
 uint8_t address=0;
 uint32_t lastSample=0, lastProbe=0, lastSuccess=0;
+uint32_t retryInterval=RETRY_MS;
+uint8_t lastGoodAddress=0;
+bool lastGoodReversed=false;
 bool online=false, busReady=false, busReversed=false;
-enum class ProbePhase { Wait, Normal, Reversed };
+enum class ProbePhase { Wait, Remembered, Normal, Reversed };
 ProbePhase probePhase=ProbePhase::Wait;
 uint8_t candidate=0x40;
 BatteryReading reading{};
@@ -37,6 +40,7 @@ bool probe(uint8_t probeAddress) {
       if (!writeRegister(0,(config&~uint16_t(7))|uint16_t(7))) return false;
     }
     online=true; reading.sensorOnline=true;
+    lastGoodAddress=address;lastGoodReversed=busReversed;retryInterval=RETRY_MS;
     Serial.printf("INA219 detected at 0x%02X; SDA=D%d SCL=D%d\n",address,
                   busReversed ? SCL_PIN : SDA_PIN,busReversed ? SDA_PIN : SCL_PIN);
     return true;
@@ -58,25 +62,33 @@ void batteryBegin() {
 
 void batteryPoll(uint32_t now) {
   if (!busReady) {
-    if (uint32_t(now-lastProbe)<RETRY_MS) return;
+    if (uint32_t(now-lastProbe)<retryInterval) return;
     lastProbe=now;
     if (!configureBus(false)) return;
     candidate=0x40; probePhase=ProbePhase::Normal;
   }
   if (!online) {
     if (probePhase==ProbePhase::Wait) {
-      if (uint32_t(now-lastProbe)<RETRY_MS) return;
-      candidate=0x40; probePhase=ProbePhase::Normal;
+      if (uint32_t(now-lastProbe)<retryInterval) return;
+      const bool reverse=lastGoodAddress && lastGoodReversed;
+      if (busReversed!=reverse && !configureBus(reverse)) { lastProbe=now; return; }
+      candidate=lastGoodAddress ? lastGoodAddress : 0x40;
+      probePhase=lastGoodAddress ? ProbePhase::Remembered : ProbePhase::Normal;
     }
     // Probe at most one address per loop so a missing device or a timeout
     // doesn't block the dashboard and phone controls for a whole scan.
     if (probe(candidate)) { lastSuccess=now; probePhase=ProbePhase::Wait; return; }
+    if (probePhase==ProbePhase::Remembered) {
+      if (busReversed && !configureBus(false)) { lastProbe=now; probePhase=ProbePhase::Wait; return; }
+      candidate=0x40;probePhase=ProbePhase::Normal;return;
+    }
     if (candidate++<0x4f) return;
     if (probePhase==ProbePhase::Normal) {
       if (!configureBus(true)) { lastProbe=now; probePhase=ProbePhase::Wait; return; }
       candidate=0x40; probePhase=ProbePhase::Reversed;
     } else {
       configureBus(false); address=0; lastProbe=now; probePhase=ProbePhase::Wait;
+      retryInterval=retryInterval<RETRY_MAX_MS/2 ? retryInterval*2 : RETRY_MAX_MS;
     }
     return;
   }

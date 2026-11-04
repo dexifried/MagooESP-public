@@ -295,13 +295,13 @@ void tiltView(GFXcanvas16& c,const Telemetry& d,uint16_t accent) {
   label(c,18,5,"TRAIL / INCLINE",small,WHITE,145);
   const char* status=d.tiltAvailable?"LIVE":"OFFLINE";
   label(c,230-textWidth(small,status),5,status,small,d.tiltAvailable?accent:MUTED,50);
-  inclineCard(c,7,"ROLL",d.roll,d.tiltAvailable,false,accent);
-  inclineCard(c,123,"PITCH",d.pitch,d.tiltAvailable,true,accent);
+  inclineCard(c,7,"PITCH",d.pitch,d.tiltAvailable,false,accent);
+  inclineCard(c,123,"ROLL",d.roll,d.tiltAvailable,true,accent);
 }
 void speedometer(GFXcanvas16& c,const Telemetry& d,uint16_t accent,uint16_t dimAccent) {
   c.fillScreen(0x0841);c.fillRoundRect(2,2,236,131,9,0x0841);c.drawRoundRect(2,2,236,131,9,BORDER);
   c.fillCircle(13,13,2,accent);label(c,19,7,"MAGOO / RC",small,MUTED,100);
-  const char* status=d.demo?"DEMO":"THROTTLE";const int statusWidth=textWidth(small,status);label(c,227-statusWidth,7,status,small,d.demo?accent:MUTED,65);
+  const char* status=d.demo?"NO SIGNAL":"THROTTLE";const int statusWidth=textWidth(small,status);label(c,227-statusWidth,7,status,small,d.demo?MUTED:accent,65);
   c.fillRoundRect(7,42,32,39,6,PANEL); c.drawRoundRect(7,42,32,39,6,BORDER);
   label(c,23-textWidth(small,"GEAR")/2,45,"GEAR",small,MUTED,28);
   const char gearText[2]={d.driveDirection,0};
@@ -320,10 +320,9 @@ void speedometer(GFXcanvas16& c,const Telemetry& d,uint16_t accent,uint16_t dimA
   for(int i=0;i<=70;i++) { const auto& line=dots[i]; c.drawLine(line.x1,line.y1,line.x2,line.y2,i<litDots?accent:dotColor); }
   for(int i=0;i<=16;i++) { const auto& line=ticks[i]; c.drawLine(line.x1,line.y1,line.x2,line.y2,i%4==0?accent:0x73AE); }
   const float angle=(200.0f+speed*1.4f)*PI_F/180.0f,dx=cosf(angle),dy=sinf(angle);
-  const int bx=120+(int)(dx*54),by=91+(int)(dy*54),tx=120+(int)(dx*76),ty=91+(int)(dy*76);
-  if(d.speedAvailable) {c.fillTriangle(bx+(int)(-dy*6),by+(int)(dx*6),bx-(int)(-dy*6),by-(int)(dx*6),tx,ty,accent);c.drawLine(bx,by,tx,ty,WHITE);}
-  // A solid central field keeps the needle from cutting through the numbers.
-  c.fillRoundRect(80,37,80,43,7,0x0841);
+  // Keep the pointer on the dial so it does not cross the speed digits.
+  const int bx=120+(int)(dx*66),by=91+(int)(dy*66),tx=120+(int)(dx*76),ty=91+(int)(dy*76);
+  if(d.speedAvailable) {c.fillTriangle(bx+(int)(-dy*4),by+(int)(dx*4),bx-(int)(-dy*4),by-(int)(dx*4),tx,ty,accent);c.drawLine(bx,by,tx,ty,WHITE);}
   char value[8];if(!d.speedAvailable)snprintf(value,sizeof(value),"0.0");else if(speed>=99.95f)snprintf(value,sizeof(value),"100");else snprintf(value,sizeof(value),"%.1f",speed);
   const int width=textWidth(digits,value);label(c,120-width/2,29,value,digits,WHITE,80);
   const char* unit=d.demo?"km/h":"EST  km/h";label(c,120-textWidth(small,unit)/2,73,unit,small,MUTED,90);
@@ -332,12 +331,30 @@ void speedometer(GFXcanvas16& c,const Telemetry& d,uint16_t accent,uint16_t dimA
   label(c,11,102,d.demo?"RPM":"RPM EST",small,MUTED,80);
   label(c,195,102,"BAT",small,MUTED,38);
   const int active=(int)(clampf(d.rpm,0,8000)*12/8000);
-  for(int i=0;i<12;i++)c.fillRoundRect(11+i*6,119,5,7,1,d.rpmAvailable && i<active?accent:0x2104);
+  // Warn as the simulated RPM approaches the 8,000 RPM shift point.
+  const uint16_t rpmColor=d.rpm>=7200.0f?0xF800:(d.rpm>=6000.0f?0xFFE0:WHITE);
+  for(int i=0;i<12;i++)c.fillRoundRect(11+i*6,119,5,7,1,d.rpmAvailable && i<active?rpmColor:0x2104);
   c.drawFastVLine(84,118,9,accent);
   c.drawRoundRect(174,118,14,9,2,MUTED);c.fillRect(188,121,2,3,MUTED);
-  char volts[10];if(d.voltageAvailable)snprintf(volts,sizeof(volts),"%.1fV",d.voltage);else snprintf(volts,sizeof(volts),"--.-V");
-  label(c,195,115,volts,small,WHITE,38);
-  c.drawFastHLine(105,122,30,dimAccent);c.fillCircle(120,122,2,accent);
+  c.fillRoundRect(176,120,10,5,1,WHITE);
+  label(c,195,118,"12.6V",small,WHITE,38);
+  if (d.tiltAvailable) {
+    // Rotate a fixed-length bar around its center, as in the incline view.
+    const float pitchAngle=-clampf(d.pitch,-90.0f,90.0f)*PI_F/180.0f;
+    const int dx=(int)roundf(14.0f*cosf(pitchAngle));
+    const int dy=(int)roundf(14.0f*sinf(pitchAngle));
+    c.drawLine(120-dx,118-dy,120+dx,118+dy,accent);
+    c.fillCircle(120-dx,118-dy,1,accent);
+    c.fillCircle(120+dx,118+dy,1,accent);
+    c.fillCircle(120,118,2,accent);
+    char pitchText[8];
+    snprintf(pitchText,sizeof(pitchText),"%ld",long(lroundf(d.pitch)));
+    label(c,138,114,pitchText,small,WHITE,27);
+    c.drawCircle(138+textWidth(small,pitchText)+2,116,1,accent);
+  } else {
+    c.drawFastHLine(106,118,29,dimAccent);
+    label(c,138,114,"--",small,MUTED,27);
+  }
 }
 }
 

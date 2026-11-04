@@ -1,6 +1,6 @@
 plugins { id 'com.android.application' }
 android { namespace 'ca.magoo.gps'; compileSdk 35; buildToolsVersion '35.0.0'
-  defaultConfig { applicationId 'ca.magoo.gps'; minSdk 26; targetSdk 35; versionCode 2; versionName '2.0-test' }
+  defaultConfig { applicationId 'ca.magoo.gps'; minSdk 26; targetSdk 35; versionCode 6; versionName '6.0-test' }
 }
 
 
@@ -9,10 +9,17 @@ def dashboardAssets = layout.buildDirectory.dir('generated/magoo-assets')
 android.sourceSets.main.assets.srcDir(dashboardAssets)
 tasks.register('copyDashboardAssets', Sync) {
   from(rootProject.file('../web'))
-  include 'dashboard.html', 'dashboard-polish.css', 'pairing.css', 'pairing.js', 'hero.jpg', 'home.jpg', 'speed.jpg', 'navigation.jpg', 'music.jpg'
+  include 'dashboard.html', 'dashboard-polish.css', 'pairing.css', 'pairing.js', 'frame-delta.js', 'hero.jpg', 'home.jpg', 'speed.jpg', 'navigation.jpg', 'music.jpg'
   into(dashboardAssets)
   inputs.file(rootProject.file('../include/AlbumArt.h'))
+  inputs.property('magooVersionCode', android.defaultConfig.versionCode)
+  inputs.property('magooVersionName', android.defaultConfig.versionName)
   doLast {
+    new File(dashboardAssets.get().asFile, 'magoo-version.json').text = groovy.json.JsonOutput.toJson([
+      applicationId: android.defaultConfig.applicationId,
+      versionCode: android.defaultConfig.versionCode,
+      versionName: android.defaultConfig.versionName
+    ])
     def album = rootProject.file('../include/AlbumArt.h').getText('UTF-8')
     def output = new File(dashboardAssets.get().asFile, 'album')
     output.mkdirs()

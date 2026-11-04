@@ -11,6 +11,8 @@ This project runs the same dashboard and app icons inside Expo Go on iPhone or A
 
 Expo Go is a development client and needs the development server available to load the project. A phone connected only to Magoo's access point may not be able to reach the computer at the same time. The independently installed Android APK doesn't require the Expo server.
 
-Phone GPS is opt-in through Phone GPS. Sharing runs only while Expo Go is in the foreground; map tiles require internet. The map represents the phone's location. Tile data is obtained from OpenStreetMap with attribution shown on the dashboard.
+Phone GPS is opt-in through Phone GPS. Sharing runs only while Expo Go is in the foreground; location updates pause when the ESP's map is not displayed or its screen is asleep and resume when needed. Map tiles require internet. The map represents the phone's location. Tile data is obtained from OpenStreetMap with attribution shown on the dashboard.
+
+The display preview caches the exact ESP screen and requests only changed tiles after its first frame. It automatically falls back to the original full-screen mirror with older ESP firmware. An unchanged map uses a small freshness update; the full image is sent again if the ESP has restarted, another client changed the map, or the image changes.
 
 Starting Expo regenerates `dashboard.generated.js` from the shared web UI and album art. If the server is already running when those assets change, run `pnpm sync-dashboard` to refresh the bundled copy.

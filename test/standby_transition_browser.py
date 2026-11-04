@@ -19,10 +19,10 @@ with sync_playwright() as p:
   if path=='/winch/status':return r.fulfill(json={'ready':True,'reversed':False,'direction':'S'})
   if path=='/screen':return r.fulfill(status=204,headers={'X-Display-State':'sleep'})
   if path=='/playlist':return r.fulfill(json=[])
-  if path in ('/dashboard.html','/pairing.css','/pairing.js','/dashboard-polish.css') or path.endswith('.jpg'):return r.continue_()
+  if path in ('/dashboard.html','/pairing.css','/pairing.js','/frame-delta.js','/dashboard-polish.css') or path.endswith('.jpg'):return r.continue_()
   return r.fulfill(status=200,body='OK')
  page.route('**/*',route);page.goto(f'http://127.0.0.1:{server.server_address[1]}/dashboard.html')
- page.get_by_role('heading',name='Currently Asleep').wait_for();assert page.locator('#winch-controls').count()==0
+ page.get_by_role('heading',name='Hey!').wait_for();assert page.locator('#winch-controls').count()==0
  print('PASS: web dashboard switches to standby when the display sleeps')
  browser.close()
 server.shutdown()

@@ -3,7 +3,7 @@
 
 struct TiltAngles { float pitch, roll; };
 
-// Board X points forward and board Y points to the left of the vehicle.
+// Raw sensor-frame angles; Imu.cpp maps them to the crawler's mounted axes.
 inline bool tiltFromGravity(float x, float y, float z, TiltAngles& out) {
   const float magnitude = sqrtf(x*x + y*y + z*z);
   if (!isfinite(magnitude) || magnitude < 0.15f || magnitude > 4.0f) return false;

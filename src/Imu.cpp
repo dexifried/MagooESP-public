@@ -102,8 +102,10 @@ void imuPoll(uint32_t now) {
   else { filteredX += 0.2f*(x-filteredX); filteredY += 0.2f*(y-filteredY); filteredZ += 0.2f*(z-filteredZ); }
   if (!tiltFromGravity(filteredX, filteredY, filteredZ, absoluteAngles)) { reading.valid=false; return; }
   lastValid = now;
-  reading.pitch = tiltDifference(absoluteAngles.pitch, zeroPitch);
-  reading.roll = tiltDifference(absoluteAngles.roll, zeroRoll);
+  // The mounted sensor's axes are swapped relative to the crawler.
+  // Apply each saved zero to its original sensor axis before swapping.
+  reading.pitch = tiltDifference(absoluteAngles.roll, zeroRoll);
+  reading.roll = tiltDifference(absoluteAngles.pitch, zeroPitch);
   reading.valid = true;
 }
 

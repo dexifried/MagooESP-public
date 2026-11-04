@@ -34,6 +34,21 @@ int main() {
   if (!batteryReading().sensorOnline || Wire1.sda != 13 || Wire1.scl != 25) {
     puts("FAIL: reversed sensor did not reconnect"); return 6;
   }
+  Wire1.device=false;
+  const int beforeMissing=Wire1.probes;
+  bool sawRemembered=false;
+  for (uint32_t now=21010;now<=85000;now+=10) {
+    const int before=Wire1.probes;batteryPoll(now);
+    if (Wire1.probes-before>1) { puts("FAIL: retry is not bounded");return 7; }
+    if (!sawRemembered && Wire1.probes>before) {
+      if (Wire1.probeAddress!=0x40 || Wire1.probeSda!=13) { puts("FAIL: last working bus not tried first");return 8; }
+      sawRemembered=true;
+    }
+  }
+  if (!sawRemembered || Wire1.probes-beforeMissing>=350) { puts("FAIL: missing sensor scans did not back off");return 9; }
+  Wire1.device=true;
+  for (uint32_t now=85010;now<=99000;now+=10) batteryPoll(now);
+  if (!batteryReading().sensorOnline || Wire1.sda!=13) { puts("FAIL: sensor did not recover after backoff");return 10; }
   puts("PASS: I2C setup retries and scanning remains bounded");
   return 0;
 }

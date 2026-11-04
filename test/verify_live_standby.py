@@ -13,7 +13,7 @@ for attempt in range(15):
         with opener.open('http://magooesp.local/winch/status', timeout=3) as response:
             winch = json.load(response)
         assert not status['sleeping'] and not status['webUnlocked'], 'Expected an awake display and a sleeping website'
-        assert 'Currently Asleep' in page and 'https://magoo.dexifyz.com/' in page
+        assert 'Hey!' in page and 'https://magoo.dexifyz.com/' in page
         print('PASS: awake display and boot standby page; winch:', winch.get('direction'),
               'gear calibrated:', status.get('gearCalibrated'), 'theme:', status.get('theme'))
         break

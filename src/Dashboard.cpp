@@ -62,6 +62,7 @@ void Dashboard::present() {
   display_.endWrite();
 }
 void Dashboard::startup(uint8_t colorTheme) {
+  invalidate();
   const uint16_t colors[] = {0xF800, 0x05FF, 0xFD20, 0x07E0};
   startupAccent_ = colors[colorTheme < 4 ? colorTheme : 0];
   startupFrame_ = 0; startupLast_ = 0; startupStarted_ = 0;
@@ -150,6 +151,33 @@ bool Dashboard::animateStartup(uint32_t now, const Telemetry& data) {
   return true;
 }
 void Dashboard::render(const Telemetry& data, bool presentFrame) {
+  const uint32_t now=millis();
+  const MapFrame& map=phoneControlMap();
+  const bool mapLive=map.valid && uint32_t(now-map.receivedAt)<30000;
+  if (presentFrame && presentedValid_ && uint32_t(now-lastFullPresent_)<30000 &&
+      !changes_.changed(data,map.revision,mapLive)) return;
   DashboardUi::render(canvas_, data);
-  if (presentFrame) present();
+  if (!presentFrame) return;
+  changes_.record(data,map.revision,mapLive);
+  const uint16_t* pixels=canvas_.getBuffer();
+  if (!presentedValid_ || uint32_t(now-lastFullPresent_)>=30000) {
+    present();
+    for (unsigned i=0;i<FrameDelta::TILE_COUNT;++i) presentedHashes_[i]=FrameDelta::hashTile(pixels,i);
+    presentedValid_=true;lastFullPresent_=now;return;
+  }
+  const FrameDelta::Plan changes=FrameDelta::plan(pixels,presentedHashes_);
+  if (!changes.count) return;
+  if (changes.count>=75) { present(); lastFullPresent_=now; }
+  else {
+    display_.startWrite();
+    FrameDelta::forEachDirtyRun(changes,[&](unsigned x,unsigned y,unsigned width,unsigned height) {
+      display_.setAddrWindow(x,y,width,height);
+      for (unsigned line=0;line<height;++line)
+        display_.writePixels(canvas_.getBuffer()+(y+line)*FrameDelta::WIDTH+x,width);
+    });
+    display_.endWrite();
+  }
+  for (unsigned i=0;i<changes.count;++i) {
+    const unsigned tile=changes.changed[i];presentedHashes_[tile]=FrameDelta::hashTile(pixels,tile);
+  }
 }
