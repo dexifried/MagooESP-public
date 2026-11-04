@@ -1,31 +1,121 @@
 package ca.magoo.gps;
-import android.Manifest; import android.app.Activity; import android.content.Context; import android.content.pm.PackageManager; import android.graphics.*; import android.location.*; import android.os.*; import android.view.WindowManager; import android.widget.*; import java.io.*; import java.net.*; import java.util.Locale; import java.util.concurrent.*; import java.util.concurrent.atomic.AtomicBoolean;
-public class MainActivity extends Activity implements LocationListener {
- static final int W=72,H=52; int zoom=16; Location lastLocation; static final long WEEK=604800000L; final Handler ui=new Handler(Looper.getMainLooper()); final ExecutorService work=Executors.newSingleThreadExecutor(); final AtomicBoolean busy=new AtomicBoolean(); LocationManager lm; EditText host; TextView status; Button toggle; boolean active=false; long sent=0;
- int cachedLeft=Integer.MIN_VALUE,cachedTop,cachedZoom; String cachedPixels;
- final Runnable refreshMap=new Runnable(){public void run(){if(!active)return;if(lastLocation!=null&&LocationFreshness.isFresh(lastLocation.getElapsedRealtimeNanos(),SystemClock.elapsedRealtimeNanos()))onLocationChanged(lastLocation);ui.postDelayed(this,10000);}};
- public void onCreate(Bundle b){super.onCreate(b); lm=(LocationManager)getSystemService(Context.LOCATION_SERVICE); LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setPadding(36,44,36,24);root.setBackgroundColor(Color.rgb(18,18,18));TextView title=new TextView(this);title.setText("MAGOO GPS");title.setTextSize(25);title.setTextColor(Color.WHITE);root.addView(title);TextView help=new TextView(this);help.setText("Connect your phone and MagooESP to the same home Wi-Fi. Keep this app open while sharing. The map shows your phone's location, not the crawler's. Internet is required for map tiles.");help.setTextColor(Color.LTGRAY);help.setTextSize(16);root.addView(help);host=new EditText(this);host.setSingleLine(true);host.setTextColor(Color.WHITE);host.setText(getPreferences(0).getString("host","magooesp.local"));root.addView(host);toggle=new Button(this);toggle.setText("Start sharing location");root.addView(toggle);toggle.setOnClickListener(v->{if(active)stop();else start();});LinearLayout zoomRow=new LinearLayout(this);zoomRow.setOrientation(0); Button minus=new Button(this);minus.setText("Map -");Button plus=new Button(this);plus.setText("Map +");zoomRow.addView(minus);zoomRow.addView(plus);root.addView(zoomRow);minus.setOnClickListener(v->{zoom=Math.max(14,zoom-1);sent=0;if(active&&lastLocation!=null)onLocationChanged(lastLocation);});plus.setOnClickListener(v->{zoom=Math.min(18,zoom+1);sent=0;if(active&&lastLocation!=null)onLocationChanged(lastLocation);});status=new TextView(this);status.setTextColor(Color.LTGRAY);status.setText("Ready. No location is shared until you tap Start.");root.addView(status);TextView attr=new TextView(this);attr.setText("Map data (c) OpenStreetMap contributors");attr.setTextColor(Color.LTGRAY);root.addView(attr);setContentView(root);}
- void start(){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED&&checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},1);return;}try{active=true;getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);toggle.setText("Stop sharing");getPreferences(0).edit().putString("host",host.getText().toString().trim()).apply();if(lm.isProviderEnabled(LocationManager.GPS_PROVIDER))lm.requestLocationUpdates(LocationManager.GPS_PROVIDER,4000,0,this);if(lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER))lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER,5000,0,this);status.setText("Waiting for location. Keep this app open.");ui.removeCallbacks(refreshMap);ui.postDelayed(refreshMap,10000);}catch(Exception e){active=false;toggle.setText("Start sharing location");status.setText("Enable phone location and try again.");}}
- @Override public void onRequestPermissionsResult(int n,String[] p,int[] r){super.onRequestPermissionsResult(n,p,r);if(n==1){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED||checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)start();else status.setText("Location permission was not granted.");}}
- void stop(){active=false;ui.removeCallbacks(refreshMap);lm.removeUpdates(this);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);toggle.setText("Start sharing location");status.setText("Stopped. The ESP32 map expires shortly.");} @Override protected void onPause(){super.onPause();if(active)stop();} @Override protected void onDestroy(){super.onDestroy();work.shutdownNow();}
- @Override public void onLocationChanged(Location loc){lastLocation=new Location(loc);if(!active||!LocationFreshness.isFresh(loc.getElapsedRealtimeNanos(),SystemClock.elapsedRealtimeNanos())||(sent!=0&&SystemClock.elapsedRealtime()-sent<10000)||!busy.compareAndSet(false,true))return;sent=SystemClock.elapsedRealtime();Location copy=new Location(loc);String address=host.getText().toString().trim();final int z=zoom;status.setText("Updating map...");work.execute(()->{try{send(copy,address,z);ui.post(()->{if(active)status.setText("Map sent. Phone accuracy about "+Math.round(copy.getAccuracy())+" m. Keep this app open.");});}catch(Exception e){ui.post(()->{if(active)status.setText("Map update failed. Check internet, ESP32 address and Wi-Fi.");});}finally{busy.set(false);}});}
- Bitmap tile(int x,int y,int z)throws IOException{int lim=1<<z;x=((x%lim)+lim)%lim;if(y<0||y>=lim)throw new IOException();File dir=new File(getCacheDir(),"tiles");if(!dir.exists()&&!dir.mkdirs())throw new IOException();File f=new File(dir,z+"_"+x+"_"+y+".png");if(f.isFile()&&System.currentTimeMillis()<f.lastModified()){Bitmap b=BitmapFactory.decodeFile(f.toString());if(b!=null)return b;}HttpURLConnection c=(HttpURLConnection)new URL("https://tile.openstreetmap.org/"+z+"/"+x+"/"+y+".png").openConnection();c.setRequestProperty("User-Agent","MagooGPS/1.0 Android RC dashboard");c.setConnectTimeout(12000);c.setReadTimeout(12000);if(c.getResponseCode()!=200)throw new IOException(); long cacheMs=WEEK; String cc=c.getHeaderField("Cache-Control"); if(cc!=null){for(String directive:cc.split(",")){String d=directive.trim();if(d.startsWith("max-age=")){try{cacheMs=Long.parseLong(d.substring(8))*1000L;}catch(NumberFormatException ignored){}}else if(d.equalsIgnoreCase("no-cache")||d.equalsIgnoreCase("no-store")){cacheMs=0;}}} File tmp=new File(dir,f.getName()+".tmp");try(InputStream in=c.getInputStream();OutputStream out=new FileOutputStream(tmp)){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);}finally{c.disconnect();}if(!tmp.renameTo(f)){if(f.exists())f.delete();if(!tmp.renameTo(f))throw new IOException();}f.setLastModified(System.currentTimeMillis()+Math.max(0,cacheMs));Bitmap b=BitmapFactory.decodeFile(f.toString());if(b==null)throw new IOException();return b;}
- String mapPixels(int left,int top,int z)throws IOException{
-  if(cachedPixels!=null&&left==cachedLeft&&top==cachedTop&&z==cachedZoom)return cachedPixels;
-  Bitmap large=Bitmap.createBitmap(W*2,H*2,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(large);Paint paint=new Paint(Paint.FILTER_BITMAP_FLAG);
-  for(int y=Math.floorDiv(top,256);y<=Math.floorDiv(top+H*2-1,256);y++)for(int x=Math.floorDiv(left,256);x<=Math.floorDiv(left+W*2-1,256);x++){Bitmap image=tile(x,y,z);canvas.drawBitmap(image,x*256-left,y*256-top,paint);image.recycle();}
-  Bitmap small=Bitmap.createScaledBitmap(large,W,H,true);large.recycle();int[] pixels=new int[W*H];small.getPixels(pixels,0,W,0,0,W,H);small.recycle();
-  char[] hex="0123456789abcdef".toCharArray();StringBuilder data=new StringBuilder(W*H*2);
-  for(int c:pixels){int value=((Color.red(c)>>5)<<5)|((Color.green(c)>>5)<<2)|(Color.blue(c)>>6);data.append(hex[value>>4]).append(hex[value&15]);}
-  cachedLeft=left;cachedTop=top;cachedZoom=z;cachedPixels=data.toString();return cachedPixels;
- }
- void send(Location loc,String address,int z)throws Exception{
-  if(address.isEmpty()||address.contains("/")||address.contains(":"))throw new IOException();
-  double lat=Math.max(-85.0511,Math.min(85.0511,loc.getLatitude())),world=256.0*(1<<z),px=(loc.getLongitude()+180)/360*world,rad=Math.toRadians(lat),py=(1-Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2*world;
-  int left=(int)Math.floor(px)-W,top=(int)Math.floor(py)-H;String pixels=mapPixels(left,top,z);
-  long now=SystemClock.elapsedRealtimeNanos(),fix=loc.getElapsedRealtimeNanos();if(!LocationFreshness.isFresh(fix,now))throw new IOException("Location fix expired");
-  float bearing=loc.hasBearing()&&loc.hasSpeed()&&loc.getSpeed()>0.8f?loc.getBearing():-1;
-  String data="pixels="+pixels+"&bearing="+String.format(Locale.US,"%.1f",bearing)+"&ageMs="+((now-fix)/1_000_000L);byte[] body=data.getBytes("UTF-8");
-  HttpURLConnection c=(HttpURLConnection)new URL("http://"+address+"/map").openConnection();c.setConnectTimeout(5000);c.setReadTimeout(5000);c.setRequestMethod("POST");c.setDoOutput(true);c.setRequestProperty("Content-Type","application/x-www-form-urlencoded");c.setFixedLengthStreamingMode(body.length);try(OutputStream out=c.getOutputStream()){out.write(body);}int response=c.getResponseCode();c.disconnect();if(response!=200)throw new IOException();
- }
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.InputType;
+import android.view.ViewGroup;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.EditText;
+import android.widget.TextView;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/** The dashboard is bundled in the app; only API requests go to Magoo. */
+public class MainActivity extends Activity {
+  private static final Set<String> ASSETS = new HashSet<>(Arrays.asList(
+      "dashboard.html", "dashboard-polish.css", "pairing.css", "pairing.js",
+      "hero.jpg", "home.jpg", "speed.jpg", "navigation.jpg", "music.jpg",
+      "album/0.jpg", "album/1.jpg", "album/2.jpg"));
+  private final ExecutorService network = Executors.newSingleThreadExecutor();
+  private WebView web;
+  private String host = "magooesp.local";
+
+  @Override public void onCreate(Bundle state) {
+    super.onCreate(state);
+    TextView loading = new TextView(this);
+    loading.setText("Connecting to Magoo…"); loading.setTextColor(Color.WHITE);
+    loading.setGravity(android.view.Gravity.CENTER); loading.setBackgroundColor(Color.rgb(9,10,11));
+    setContentView(loading);
+    String saved = getPreferences(0).getString("host", "magooesp.local");
+    network.execute(() -> {
+      String selected = saved;
+      if (!reachable(saved) && !"192.168.4.1".equals(saved) && reachable("192.168.4.1")) selected="192.168.4.1";
+      final String chosen=selected;
+      runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) openDashboard(chosen); });
+    });
+  }
+
+  private boolean reachable(String address) {
+    HttpURLConnection c=null;
+    try {
+      c=(HttpURLConnection)new URL("http://"+address+"/status").openConnection();
+      c.setConnectTimeout(1800); c.setReadTimeout(1800);
+      return c.getResponseCode()==200;
+    } catch (IOException e) { return false; }
+    finally { if(c!=null)c.disconnect(); }
+  }
+
+  private void openDashboard(String address) {
+    host=address;
+    if(web!=null){web.stopLoading();web.destroy();}
+    web=new WebView(this);
+    web.setBackgroundColor(Color.rgb(9,10,11));
+    web.getSettings().setJavaScriptEnabled(true);
+    web.getSettings().setDomStorageEnabled(true);
+    web.getSettings().setAllowFileAccess(false);
+    web.getSettings().setAllowContentAccess(false);
+    web.setWebViewClient(new WebViewClient() {
+      @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        Uri uri=request.getUrl();
+        if (!"GET".equals(request.getMethod()) || !"http".equals(uri.getScheme()) || !host.equalsIgnoreCase(uri.getHost())) return null;
+        String path=uri.getPath();
+        String name="/".equals(path)?"dashboard.html":path.substring(1);
+        if(!ASSETS.contains(name))return null;
+        try {
+          String mime=name.endsWith(".html")?"text/html":name.endsWith(".css")?"text/css":name.endsWith(".js")?"text/javascript":"image/jpeg";
+          return new WebResourceResponse(mime,name.endsWith(".jpg")?null:"UTF-8",getAssets().open(name));
+        } catch (IOException e) { return null; }
+      }
+      @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+        if(!request.isForMainFrame())return false;
+        Uri uri=request.getUrl();
+        if("magoo".equals(uri.getScheme()) && "address".equals(uri.getHost())){showAddressDialog();return true;}
+        if("/app.apk".equals(uri.getPath()) && host.equalsIgnoreCase(uri.getHost())){
+          startActivity(new Intent(MainActivity.this,GpsActivity.class).putExtra("host",host)); return true;
+        }
+        if("http".equals(uri.getScheme()) && "192.168.4.1".equals(uri.getHost()) && "/".equals(uri.getPath())){
+          openDashboard("192.168.4.1");return true;
+        }
+        if(("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) && !host.equalsIgnoreCase(uri.getHost())){
+          startActivity(new Intent(Intent.ACTION_VIEW,uri)); return true;
+        }
+        return false;
+      }
+    });
+    setContentView(web,new ViewGroup.LayoutParams(-1,-1));
+    web.loadUrl("http://"+host+"/?app=1");
+  }
+
+  private void showAddressDialog() {
+    EditText field=new EditText(this);field.setSingleLine(true);field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);field.setText(host);
+    AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Magoo address")
+      .setMessage("Use magooesp.local on your network, or 192.168.4.1 when connected to Magoo’s Wi-Fi.")
+      .setView(field).setNegativeButton("Cancel",null).setPositiveButton("Connect",null).create();
+    dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button->{
+      String value=field.getText().toString().trim();
+      if(!value.matches("[A-Za-z0-9.-]+") || value.length()>253){field.setError("Enter a hostname or IP address");return;}
+      getPreferences(0).edit().putString("host",value).apply();dialog.dismiss();openDashboard(value);
+    }));
+    dialog.show();
+  }
+
+  @Override protected void onPause(){
+    if(web!=null)web.evaluateJavascript("if(typeof releaseWinch==='function')releaseWinch()",null);
+    super.onPause();
+  }
+  @Override protected void onDestroy(){network.shutdownNow();if(web!=null){web.stopLoading();web.destroy();web=null;}super.onDestroy();}
+  @Override public void onBackPressed(){if(web!=null && web.canGoBack())web.goBack();else super.onBackPressed();}
 }

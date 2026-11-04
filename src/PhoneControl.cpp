@@ -8,7 +8,6 @@
 #include "Winch.h"
 #include "WifiRecovery.h"
 #include "WifiPairing.h"
-#include "MagooApk.h"
 #include "DashboardPage.h"
 #include "DASHBOARD_SPEED.h"
 #include "DASHBOARD_NAVIGATION.h"
@@ -30,6 +29,7 @@ MapFrame mapFrame = {};
 bool replayStartup = false;
 bool startupActive = false;
 bool displaySleeping = false;
+bool webUnlocked = false;
 bool displayDimmed = false;
 bool phoneActivity = false;
 bool mirrorHeld = false;
@@ -146,6 +146,8 @@ bool phoneControlBegin() {
   const char* requestHeaders[] = {"Accept-Encoding"};
   server.collectHeaders(requestHeaders, 1);
   server.on("/", HTTP_GET, [] {
+    server.sendHeader("Cache-Control", "no-store");
+    if (displaySleeping || !webUnlocked) { server.send_P(200, "text/html; charset=utf-8", STANDBY_PAGE); return; }
     server.sendHeader("Vary", "Accept-Encoding");
     if (acceptsGzip(server.header("Accept-Encoding"))) {
       server.sendHeader("Content-Encoding", "gzip");
@@ -157,7 +159,7 @@ bool phoneControlBegin() {
   server.on("/speed.jpg", HTTP_GET, [] { server.sendHeader("Cache-Control", "public, max-age=86400"); server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(DASHBOARD_SPEED), DASHBOARD_SPEED_SIZE); });
   server.on("/navigation.jpg", HTTP_GET, [] { server.sendHeader("Cache-Control", "public, max-age=86400"); server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(DASHBOARD_NAVIGATION), DASHBOARD_NAVIGATION_SIZE); });
   server.on("/hero.jpg", HTTP_GET, [] { server.sendHeader("Cache-Control", "public, max-age=86400"); server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(DASHBOARD_HERO), DASHBOARD_HERO_SIZE); });
-  server.on("/app.apk", HTTP_GET, [] { server.sendHeader("Content-Disposition", "attachment; filename=MagooGPS.apk"); server.send_P(200, "application/vnd.android.package-archive", reinterpret_cast<PGM_P>(MAGOO_APK), MAGOO_APK_SIZE); });
+  server.on("/app.apk", HTTP_GET, [] { server.sendHeader("Location", "https://magoo.dexifyz.com/"); server.send(302, "text/plain", "Open Magoo download"); });
   server.on("/winch", HTTP_POST, [] {
     const String direction = server.arg("direction");
     const char command = direction == "out" ? 'O' : direction == "in" ? 'I' : direction == "stop" ? 'S' : '?';
@@ -213,7 +215,7 @@ bool phoneControlBegin() {
     const ImuReading tilt = imuReading();
     const BatteryReading battery = batteryReading();
     const char direction = throttleDirection(throttle.valid, throttle.pulseUs, gearCalibrated, gearNeutralUs, gearForwardHigh);
-    String json = String("{\"speed\":") + String(driveReading.speed, 1) + ",\"sleeping\":" + (displaySleeping ? "true" : "false") + ",\"dimmed\":" + (displayDimmed ? "true" : "false") + ",\"theme\":" + String(selectedTheme) + ",\"view\":\"" + (selectedView == 4 ? "tilt" : (selectedView == 3 ? "home" : (selectedView == 2 ? "music" : (selectedView == 1 ? "navigation" : "speedometer")))) + "\",\"demo\":" + (!throttle.valid ? "true" : "false") + ",\"wifi\":" + jsonString(connectionState) + ",\"ip\":" + jsonString(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("")) + ",\"gps\":" + ((mapFrame.valid && (uint32_t)(millis() - mapFrame.receivedAt) < 30000) ? "true" : "false") + ",\"throttleValid\":" + (throttle.valid ? "true" : "false") + ",\"batterySensorOnline\":" + (battery.sensorOnline ? "true" : "false") + ",\"batteryValid\":" + (battery.voltageAvailable ? "true" : "false") + ",\"batteryVoltage\":" + (battery.sensorOnline ? String(battery.voltage, 3) : "null") + ",\"tiltValid\":" + (tilt.valid ? "true" : "false") + ",\"pitch\":" + String(tilt.pitch, 1) + ",\"roll\":" + String(tilt.roll, 1) + ",\"gearDirection\":" + jsonString(String(direction)) + ",\"displayGear\":" + jsonString(String(driveReading.gear)) + ",\"estimatedRpm\":" + String(driveReading.rpm, 0) + ",\"gearCalibrated\":" + (gearCalibrated ? "true" : "false") + ",\"gearNeutralCaptured\":" + (pendingGearNeutralUs ? "true" : "false") + ",\"throttlePulse\":" + String(throttle.pulseUs) + ",\"track\":" + jsonString(tracks[trackIndex].title) + ",\"artist\":" + jsonString(tracks[trackIndex].artist) + ",\"art\":" + String(tracks[trackIndex].art) + ",\"position\":" + String(musicPositionMs / 1000) + ",\"duration\":" + String(tracks[trackIndex].duration) + ",\"playing\":" + (musicPlaying ? "true" : "false") + ",\"shuffle\":" + (shuffle ? "true" : "false") + ",\"homeStyle\":" + String(homeStyle) + ",\"bootAnimation\":" + (bootAnimation ? "true" : "false") + ",\"homeLayout\":" + String(homeLayout) + ",\"trackIndex\":" + String(trackIndex) + "}";
+    String json = String("{\"speed\":") + String(driveReading.speed, 1) + ",\"sleeping\":" + (displaySleeping ? "true" : "false") + ",\"webUnlocked\":" + (webUnlocked ? "true" : "false") + ",\"dimmed\":" + (displayDimmed ? "true" : "false") + ",\"theme\":" + String(selectedTheme) + ",\"view\":\"" + (selectedView == 4 ? "tilt" : (selectedView == 3 ? "home" : (selectedView == 2 ? "music" : (selectedView == 1 ? "navigation" : "speedometer")))) + "\",\"demo\":" + (!throttle.valid ? "true" : "false") + ",\"wifi\":" + jsonString(connectionState) + ",\"ip\":" + jsonString(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("")) + ",\"gps\":" + ((mapFrame.valid && (uint32_t)(millis() - mapFrame.receivedAt) < 30000) ? "true" : "false") + ",\"throttleValid\":" + (throttle.valid ? "true" : "false") + ",\"batterySensorOnline\":" + (battery.sensorOnline ? "true" : "false") + ",\"batteryValid\":" + (battery.voltageAvailable ? "true" : "false") + ",\"batteryVoltage\":" + (battery.sensorOnline ? String(battery.voltage, 3) : "null") + ",\"tiltValid\":" + (tilt.valid ? "true" : "false") + ",\"pitch\":" + String(tilt.pitch, 1) + ",\"roll\":" + String(tilt.roll, 1) + ",\"gearDirection\":" + jsonString(String(direction)) + ",\"displayGear\":" + jsonString(String(driveReading.gear)) + ",\"estimatedRpm\":" + String(driveReading.rpm, 0) + ",\"gearCalibrated\":" + (gearCalibrated ? "true" : "false") + ",\"gearNeutralCaptured\":" + (pendingGearNeutralUs ? "true" : "false") + ",\"throttlePulse\":" + String(throttle.pulseUs) + ",\"track\":" + jsonString(tracks[trackIndex].title) + ",\"artist\":" + jsonString(tracks[trackIndex].artist) + ",\"art\":" + String(tracks[trackIndex].art) + ",\"position\":" + String(musicPositionMs / 1000) + ",\"duration\":" + String(tracks[trackIndex].duration) + ",\"playing\":" + (musicPlaying ? "true" : "false") + ",\"shuffle\":" + (shuffle ? "true" : "false") + ",\"homeStyle\":" + String(homeStyle) + ",\"bootAnimation\":" + (bootAnimation ? "true" : "false") + ",\"homeLayout\":" + String(homeLayout) + ",\"trackIndex\":" + String(trackIndex) + "}";
     server.send(200, "application/json", json);
   });
   server.on("/map", HTTP_POST, [] {
@@ -344,8 +346,8 @@ bool phoneControlBegin() {
     const String value = server.arg("sleep");
     if (value != "0" && value != "1") { server.send(400, "text/plain", "Invalid sleep state"); return; }
     displaySleeping = value == "1";
-    if (!displaySleeping) phoneActivity = true;
-    if (displaySleeping) replayStartup = false;
+    if (!displaySleeping) { phoneActivity = true; if (server.arg("web") == "1") webUnlocked = true; }
+    if (displaySleeping) { replayStartup = false; webUnlocked = false; }
     server.send(200, "text/plain", "OK");
   });
   server.on("/replay-startup", HTTP_POST, [] { if (displaySleeping) { server.send(409, "text/plain", "Wake display first"); return; } phoneActivity = true; replayStartup = true; server.send(200, "text/plain", "OK"); });
@@ -500,4 +502,4 @@ void phoneControlWakeFromThrottle() { displaySleeping = false; }
 
 bool phoneControlConsumeActivity() { const bool active=phoneActivity; phoneActivity=false; return active; }
 void phoneControlSetDimmed(bool dimmed) { displayDimmed=dimmed; }
-void phoneControlSleepFromIdle() { displaySleeping=true; replayStartup=false; }
+void phoneControlSleepFromIdle() { displaySleeping=true; replayStartup=false; webUnlocked=false; }
