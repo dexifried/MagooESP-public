@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 bool winchBegin();
-bool winchSet(char direction);
+bool winchSet(char direction, uint8_t speed = 100);
 char winchDirection();
 void winchSetReversed(bool reversed);
 bool winchIsReady();

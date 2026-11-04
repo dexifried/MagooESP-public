@@ -160,7 +160,13 @@ bool phoneControlBegin() {
     const String direction = server.arg("direction");
     const char command = direction == "out" ? 'O' : direction == "in" ? 'I' : direction == "stop" ? 'S' : '?';
     if (command == '?') { server.send(400, "text/plain", "Invalid direction"); return; }
-    if (!winchSet(command)) { server.send(503, "text/plain", "Winch unavailable"); return; }
+    long speed = 100;
+    if (server.hasArg("speed")) {
+      const String value = server.arg("speed"); char* end = nullptr;
+      speed = strtol(value.c_str(), &end, 10);
+      if (end == value.c_str() || *end || speed < 0 || speed > 100) { server.send(400, "text/plain", "Invalid speed"); return; }
+    }
+    if (!winchSet(command, (uint8_t)speed)) { server.send(503, "text/plain", "Winch unavailable"); return; }
     phoneActivity = true; server.send(200, "text/plain", "OK");
   });
   server.on("/winch/reverse", HTTP_POST, [] {

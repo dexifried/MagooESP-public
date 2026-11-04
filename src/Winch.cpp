@@ -37,9 +37,9 @@ bool winchBegin() {
   ready = true;
   return true;
 }
-bool winchSet(char direction) {
+bool winchSet(char direction, uint8_t speed) {
   if (!ready || (direction != 'S' && direction != 'I' && direction != 'O')) return false;
-  portENTER_CRITICAL(&mux); state.set(direction, millis()); ++commandCount; portEXIT_CRITICAL(&mux);
+  portENTER_CRITICAL(&mux); state.set(direction, millis(), speed); ++commandCount; portEXIT_CRITICAL(&mux);
   return true;
 }
 char winchDirection() {
