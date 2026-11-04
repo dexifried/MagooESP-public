@@ -313,10 +313,13 @@ void speedometer(GFXcanvas16& c,const Telemetry& d,uint16_t accent,uint16_t dimA
     for(int i=0;i<=16;i++) ticks[i]=radialLine(120,91,200.0f+i*140.0f/16.0f,i%4==0?67:72,78);
     geometryReady=true;
   }
-  const uint16_t dotColor=blend(0x0841,accent,95);
-  for(const auto& line:dots) c.drawLine(line.x1,line.y1,line.x2,line.y2,dotColor);
+  // Highlight the travelled part of the dial without changing the layout.
+  const float speed=clampf(d.speedKph,0,100);
+  const uint16_t dotColor=blend(0x0841,accent,65);
+  const int litDots=d.speedAvailable ? int(speed*70.0f/100.0f) : 0;
+  for(int i=0;i<=70;i++) { const auto& line=dots[i]; c.drawLine(line.x1,line.y1,line.x2,line.y2,i<litDots?accent:dotColor); }
   for(int i=0;i<=16;i++) { const auto& line=ticks[i]; c.drawLine(line.x1,line.y1,line.x2,line.y2,i%4==0?accent:0x73AE); }
-  const float speed=clampf(d.speedKph,0,100), angle=(200.0f+speed*1.4f)*PI_F/180.0f,dx=cosf(angle),dy=sinf(angle);
+  const float angle=(200.0f+speed*1.4f)*PI_F/180.0f,dx=cosf(angle),dy=sinf(angle);
   const int bx=120+(int)(dx*54),by=91+(int)(dy*54),tx=120+(int)(dx*76),ty=91+(int)(dy*76);
   if(d.speedAvailable) {c.fillTriangle(bx+(int)(-dy*6),by+(int)(dx*6),bx-(int)(-dy*6),by-(int)(dx*6),tx,ty,accent);c.drawLine(bx,by,tx,ty,WHITE);}
   // A solid central field keeps the needle from cutting through the numbers.

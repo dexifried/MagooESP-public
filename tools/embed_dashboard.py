@@ -4,12 +4,14 @@ import gzip
 def render_page(root=Path('.')):
     page = (root / 'web/dashboard.html').read_text(encoding='utf-8-sig')
     css = (root / 'web/pairing.css').read_text(encoding='utf-8')
+    polish_css = (root / 'web/dashboard-polish.css').read_text(encoding='utf-8')
     js = (root / 'web/pairing.js').read_text(encoding='utf-8')
     style_tag = '<link rel="stylesheet" href="/pairing.css">'
+    polish_tag = '<link rel="stylesheet" href="/dashboard-polish.css">'
     script_tag = '<script src="/pairing.js"></script>'
-    if page.count(style_tag) != 1 or page.count(script_tag) != 1:
+    if page.count(style_tag) != 1 or page.count(polish_tag) != 1 or page.count(script_tag) != 1:
         raise ValueError('Dashboard pairing asset tags are missing or duplicated')
-    return page.replace(style_tag, '<style>' + css + '</style>').replace(script_tag, '<script>' + js + '</script>')
+    return page.replace(style_tag, '<style>' + css + '</style>').replace(polish_tag, '<style>' + polish_css + '</style>').replace(script_tag, '<script>' + js + '</script>')
 
 def main():
     page = render_page()
