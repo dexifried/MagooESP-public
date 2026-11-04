@@ -41,7 +41,7 @@ with sync_playwright() as playwright:
     assert page.locator('#vehicle-roll').inner_text()=='−5.1°'
     assert page.locator('#vehicle-battery').inner_text()=='—'
     assert 'Not available' in page.locator('#vehicle-battery-note').inner_text()
-    assert page.locator('#vehicle-receiver').inner_text()=='Connected'
+    assert page.locator('#remote-connection').inner_text()=='Connected'
     page.locator('.vehicle-card').screenshot(path=str(Path(tempfile.gettempdir())/'magoo-vehicle-preview.png'))
     page.locator('#winch-controls').screenshot(path=str(Path(tempfile.gettempdir())/'magoo-winch-preview.png'))
     b=page.locator('#winch-out');b.scroll_into_view_if_needed();box=b.bounding_box();x=box['x']+box['width']/2;y=box['y']+box['height']/2
@@ -63,9 +63,9 @@ with sync_playwright() as playwright:
     page.evaluate('update()');page.wait_for_timeout(300)
     assert page.locator('#vehicle-pitch').inner_text()=='—'
     assert page.locator('#vehicle-battery').inner_text()=='12.4 V'
-    assert page.locator('#vehicle-receiver').inner_text()=='Not connected'
+    assert page.locator('#remote-connection').inner_text()=='Disconnected'
     state['online']=False;page.evaluate('update()');page.wait_for_timeout(300)
-    assert page.locator('#vehicle-receiver').inner_text()=='Unknown'
+    assert page.locator('#remote-connection').inner_text()=='Unknown'
     assert page.locator('#vehicle-battery').inner_text()=='—'
     page.set_viewport_size({'width':320,'height':700})
     assert page.locator('.vehicle-card').evaluate('el=>el.scrollWidth<=el.clientWidth')

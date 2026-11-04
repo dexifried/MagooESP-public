@@ -49,6 +49,7 @@ with sync_playwright() as playwright:
         return route.fulfill(status=200, body='OK')
     page.route('**/*', intercept)
     page.goto(f'http://127.0.0.1:{server.server_address[1]}/dashboard.html')
+    page.locator('#settings-open').click()
     page.locator('#wifi-open').click()
     page.get_by_role('heading',name='Get Magoo connected').wait_for()
     page.screenshot(path=str(Path(tempfile.gettempdir())/'magoo-pair-welcome.png'))

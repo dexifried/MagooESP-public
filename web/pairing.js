@@ -39,7 +39,7 @@ async function openPairing() {
   if (!pairDialog.open) pairDialog.showModal();
   try { await pairLoad(); } catch (_) { $('pair-welcome-status').textContent='Could not check saved networks. You can still continue.'; }
 }
-function closePairing() { pairGeneration++; $('pair-password').value=''; if(pairDialog.open)pairDialog.close(); $('wifi-open').focus(); }
+function closePairing() { pairGeneration++; $('pair-password').value=''; if(pairDialog.open)pairDialog.close(); ($( 'settings-dialog').open?$('wifi-open'):$('settings-open')).focus(); }
 $('wifi-open').onclick=openPairing;
 $('pair-close').onclick=closePairing;
 pairDialog.addEventListener('cancel',event=>{event.preventDefault();closePairing()});
