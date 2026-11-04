@@ -16,3 +16,6 @@ main{padding-bottom:28px}.hero{height:116px;margin-bottom:10px;padding:19px 20px
 .view-label-short{display:none}
 @media(max-width:350px){.view-label-full{display:none}.view-label-short{display:inline}}
 @media(max-width:340px){.connection-card{gap:4px;padding:10px}.connection-card .power-button,.settings-icon{width:44px;height:44px}.vehicle-stat{padding:10px 7px}.vehicle-value{font-size:17px}}
+
+/* Keep incline calibration compact, while leaving room for feedback when needed. */
+#tilt-controls .actions{justify-content:center}#tilt-controls .feedback-message{text-align:center}#tilt-controls .feedback-message:empty{display:none}
