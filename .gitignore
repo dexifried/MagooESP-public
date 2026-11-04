@@ -5,6 +5,10 @@ android-app/.gradle/
 android-app/build/
 android-app/app/build/
 android-app/local.properties
+expo-app/node_modules/
+expo-app/.expo/
+expo-app/dist/
+expo-app/dist-test/
 
 __pycache__/
 *.py[cod]
