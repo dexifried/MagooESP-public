@@ -1,0 +1,10 @@
+.pio/
+.vscode/
+android-tools/
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+
+__pycache__/
+*.py[cod]
