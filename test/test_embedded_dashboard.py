@@ -2,6 +2,7 @@ from pathlib import Path
 import gzip
 import re
 import unittest
+import sys
 
 
 class EmbeddedDashboardTest(unittest.TestCase):
@@ -11,7 +12,9 @@ class EmbeddedDashboardTest(unittest.TestCase):
         match = re.search(r'DASHBOARD_PAGE_GZIP\[\].*?\{(.*?)\}', header, re.S)
         self.assertIsNotNone(match, 'compressed dashboard missing from generated header')
         compressed = bytes(map(int, re.findall(r'\d+', match.group(1))))
-        page = (root / 'web/dashboard.html').read_text(encoding='utf-8-sig')
+        sys.path.insert(0, str(root / 'tools'))
+        from embed_dashboard import render_page
+        page = render_page(root)
         self.assertEqual(gzip.decompress(compressed).decode('utf-8'), page)
 
 

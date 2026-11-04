@@ -7,6 +7,7 @@
 #include "Battery.h"
 #include "Winch.h"
 #include "WifiRecovery.h"
+#include "WifiPairing.h"
 #include "MagooApk.h"
 #include "DashboardPage.h"
 #include "DASHBOARD_SPEED.h"
@@ -54,6 +55,7 @@ int nextTrack() { if (!shuffle) return (trackIndex + 1) % TRACK_COUNT; return (t
 String pendingSsid, pendingPassword, connectionState = "Not configured", scanJson = "[]";
 bool connecting = false, newCredentials = false, wasConnected = false, scanning = false, automaticScan = false;
 int pendingSlot = 0, activeSlot = -1, retrySlot = -1;
+WifiPairing wifiPairing;
 uint32_t nextRetry = 0, nextHomeScan = 0;
 uint32_t connectStarted = 0;
 String jsonString(const String& value) {
@@ -368,21 +370,31 @@ bool phoneControlBegin() {
       saved += String("{\"ssid\":") + jsonString(savedNetwork(slot)) + ",\"slot\":" + slot + "}";
     }
     saved += ']';
-    server.send(200, "application/json", String("{\"scanning\":") + (scanning ? "true" : "false") + ",\"networks\":" + scanJson + ",\"saved\":" + saved + ",\"activeSlot\":" + (WiFi.status() == WL_CONNECTED ? activeSlot : -1) + "}");
+    server.send(200, "application/json", String("{\"scanning\":") + (scanning ? "true" : "false") + ",\"networks\":" + scanJson + ",\"saved\":" + saved + ",\"activeSlot\":" + (WiFi.status() == WL_CONNECTED ? activeSlot : -1) + ",\"setupAccess\":" + (server.client().localIP() == WiFi.softAPIP() ? "true" : "false") + ",\"pairing\":" + jsonString(wifiPairing.name()) + ",\"pairingSlot\":" + wifiPairing.slot() + ",\"pairingId\":" + String(wifiPairing.id()) + "}");
   });
   server.on("/wifi", HTTP_POST, [] {
     if (server.client().localIP() != WiFi.softAPIP()) { server.send(403, "text/plain", "Connect to MagooESP"); return; }
-    if (scanning) { server.send(409, "text/plain", "Wait for scan"); return; }
+    if (scanning || connecting) { server.send(409, "text/plain", "Wi-Fi is busy"); return; }
     if (!server.hasArg("ssid") || !server.hasArg("password")) { server.send(400, "text/plain", "Missing credentials"); return; }
     const String ssid = server.arg("ssid"), password = server.arg("password"), slot = server.arg("slot");
     if (slot != "" && slot != "0" && slot != "1") { server.send(400, "text/plain", "Invalid slot"); return; }
+    uint32_t pairId = 0;
+    if (server.hasArg("pairId")) {
+      const String value = server.arg("pairId");
+      if (!value.length() || value.length() > 10) { server.send(400, "text/plain", "Invalid pairing request"); return; }
+      for (size_t i = 0; i < value.length(); ++i) if (value[i] < '0' || value[i] > '9') { server.send(400, "text/plain", "Invalid pairing request"); return; }
+      char* end = nullptr; errno = 0; unsigned long parsed = strtoul(value.c_str(), &end, 10);
+      if (errno == ERANGE || !end || *end) { server.send(400, "text/plain", "Invalid pairing request"); return; }
+      pairId = static_cast<uint32_t>(parsed);
+    }
     if (server.arg("useSaved") == "1") {
       const int savedSlot = slot == "1" ? 1 : 0;
       if (!savedNetworkAvailable(savedSlot) || savedNetwork(savedSlot) != ssid) { server.send(400, "text/plain", "Saved network unavailable"); return; }
-      phoneActivity = true; server.send(200, "text/plain", "Connecting"); connectSaved(savedSlot); return;
+      wifiPairing.start(savedSlot, pairId); phoneActivity = true; server.send(200, "text/plain", "Connecting"); connectSaved(savedSlot); return;
     }
     if (ssid == "MagooESP" || ssid.length() < 1 || ssid.length() > 32 || password.length() > 63 || (password.length() > 0 && password.length() < 8)) { server.send(400, "text/plain", "Invalid Wi-Fi credentials"); return; }
-    phoneActivity = true; server.send(200, "text/plain", "Connecting"); connectHome(ssid, password, true, slot == "1" ? 1 : 0);
+    const int selectedSlot = slot == "1" ? 1 : 0;
+    wifiPairing.start(selectedSlot, pairId); phoneActivity = true; server.send(200, "text/plain", "Connecting"); connectHome(ssid, password, true, selectedSlot);
   });
   server.onNotFound([] { server.send(404, "text/plain", "Not found"); }); server.begin();
   connectSaved(wifiInitialSlot(savedNetworkAvailable(0), savedNetworkAvailable(1)));
@@ -431,6 +443,7 @@ void phoneControlPoll() {
   }
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !wasConnected) {
+    if (connecting) wifiPairing.finish(pendingSlot, true);
     if (connecting && newCredentials) { prefs.putString(pendingSlot ? "hot_ssid" : "wifi_ssid", pendingSsid); prefs.putString(pendingSlot ? "hot_pass" : "wifi_pass", pendingPassword); }
     if (connecting) activeSlot = pendingSlot;
     pendingPassword = ""; connecting = false; newCredentials = false; nextRetry = 0; connectionState = "Connected"; WiFi.setAutoReconnect(false);
@@ -445,6 +458,7 @@ void phoneControlPoll() {
   }
   wasConnected = connected;
   if (connecting && !connected && (uint32_t)(millis() - connectStarted) > 25000) {
+    wifiPairing.finish(pendingSlot, false);
     connecting = false; pendingPassword = ""; connectionState = "Connection failed";
     WiFi.disconnect(false, false);
     retrySlot = newCredentials && savedNetworkAvailable(activeSlot) ? activeSlot : wifiNextSlot(pendingSlot, savedNetworkAvailable(0), savedNetworkAvailable(1));
