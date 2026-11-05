@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="590" viewBox="0 0 1200 590" role="img" aria-label="3  |  Read the receiver throttle">
+<rect width="100%" height="100%" rx="22" fill="#101317"/>
+<text x="44" y="54" fill="#fff" font-family="Arial,sans-serif" font-size="30" font-weight="bold">3  |  Read the receiver throttle</text>
+<text x="44" y="84" fill="#b8c1cb" font-family="Arial,sans-serif" font-size="18">The ESC stays connected; the ESP only listens to the throttle signal.</text>
+<rect x="45" y="150" width="270" height="235" rx="14" fill="#1d242c" stroke="#566575" stroke-width="2"/>
+<text x="65" y="185" text-anchor="start" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="bold">RC RECEIVER</text>
+<text x="65" y="212" text-anchor="start" fill="#bac5cf" font-family="Arial,sans-serif" font-size="16" font-weight="normal">Throttle channel</text>
+<rect x="835" y="120" width="320" height="140" rx="14" fill="#1d242c" stroke="#566575" stroke-width="2"/>
+<text x="855" y="155" text-anchor="start" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="bold">ESC</text>
+<rect x="835" y="330" width="320" height="150" rx="14" fill="#1d242c" stroke="#566575" stroke-width="2"/>
+<text x="855" y="365" text-anchor="start" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="bold">ESP32</text>
+<text x="285" y="222" text-anchor="end" fill="#70baff" font-family="Arial,sans-serif" font-size="19" font-weight="bold">SIGNAL</text>
+<text x="285" y="352" text-anchor="end" fill="#c3cbd3" font-family="Arial,sans-serif" font-size="19" font-weight="bold">GROUND</text>
+<polyline points="315,215 570,215 835,195" fill="none" stroke="#70baff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="570,215 570,395 835,395" fill="none" stroke="#70baff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="570" cy="215" r="6" fill="#70baff"/>
+<polyline points="315,345 735,345 735,445 835,445" fill="none" stroke="#c3cbd3" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="855" y="202" text-anchor="start" fill="#70baff" font-family="Arial,sans-serif" font-size="18" font-weight="bold">THROTTLE SIGNAL</text>
+<text x="855" y="402" text-anchor="start" fill="#70baff" font-family="Arial,sans-serif" font-size="18" font-weight="bold">D16 / GPIO16 / RX2</text>
+<text x="855" y="452" text-anchor="start" fill="#c3cbd3" font-family="Arial,sans-serif" font-size="18" font-weight="bold">GND</text>
+<text x="475" y="185" text-anchor="start" fill="#fff" font-family="Arial,sans-serif" font-size="18" font-weight="bold">Y SPLIT</text>
+<text x="600" y="375" text-anchor="start" fill="#f5ce70" font-family="Arial,sans-serif" font-size="17" font-weight="normal">Level-shift this branch if needed</text>
+<text x="600" y="535" text-anchor="middle" fill="#f5ce70" font-family="Arial,sans-serif" font-size="19" font-weight="normal">Receiver and ESC retain their normal power; do not connect servo + to the ESP32.</text>
+</svg>

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-label="5  |  Optional battery voltage sensing">
+<rect width="100%" height="100%" rx="22" fill="#101317"/>
+<text x="44" y="54" fill="#fff" font-family="Arial,sans-serif" font-size="30" font-weight="bold">5  |  Optional battery voltage sensing</text>
+<text x="44" y="84" fill="#b8c1cb" font-family="Arial,sans-serif" font-size="18">INA219 voltage-only connection. Check polarity and sensor ratings first.</text>
+<rect x="35" y="125" width="305" height="265" rx="14" fill="#1d242c" stroke="#566575" stroke-width="2"/>
+<text x="55" y="160" text-anchor="start" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="bold">ESP32</text>
+<text x="55" y="187" text-anchor="start" fill="#bac5cf" font-family="Arial,sans-serif" font-size="16" font-weight="normal">3.3 V logic</text>
+<rect x="845" y="125" width="320" height="385" rx="14" fill="#1d242c" stroke="#566575" stroke-width="2"/>
+<text x="865" y="160" text-anchor="start" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="bold">INA219</text>
+<text x="865" y="187" text-anchor="start" fill="#bac5cf" font-family="Arial,sans-serif" font-size="16" font-weight="normal">Read labels on your board</text>
+<rect x="35" y="475" width="305" height="145" rx="14" fill="#1d242c" stroke="#566575" stroke-width="2"/>
+<text x="55" y="510" text-anchor="start" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="bold">BATTERY</text>
+<text x="315" y="212" text-anchor="end" fill="#fb6472" font-family="Arial,sans-serif" font-size="18" font-weight="bold">3V3</text>
+<polyline points="340,205 845,205" fill="none" stroke="#fb6472" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="865" y="212" text-anchor="start" fill="#fb6472" font-family="Arial,sans-serif" font-size="18" font-weight="bold">VCC</text>
+<text x="315" y="262" text-anchor="end" fill="#c3cbd3" font-family="Arial,sans-serif" font-size="18" font-weight="bold">GND</text>
+<polyline points="340,255 845,255" fill="none" stroke="#c3cbd3" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="865" y="262" text-anchor="start" fill="#c3cbd3" font-family="Arial,sans-serif" font-size="18" font-weight="bold">GND</text>
+<text x="315" y="312" text-anchor="end" fill="#70baff" font-family="Arial,sans-serif" font-size="18" font-weight="bold">D25 / GPIO25</text>
+<polyline points="340,305 845,305" fill="none" stroke="#70baff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="865" y="312" text-anchor="start" fill="#70baff" font-family="Arial,sans-serif" font-size="18" font-weight="bold">SDA</text>
+<text x="315" y="362" text-anchor="end" fill="#6ee3b2" font-family="Arial,sans-serif" font-size="18" font-weight="bold">D13 / GPIO13</text>
+<polyline points="340,355 845,355" fill="none" stroke="#6ee3b2" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="865" y="362" text-anchor="start" fill="#6ee3b2" font-family="Arial,sans-serif" font-size="18" font-weight="bold">SCL</text>
+<polyline points="340,525 565,525 565,425 845,425" fill="none" stroke="#fb6472" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="315" y="532" text-anchor="end" fill="#fb6472" font-family="Arial,sans-serif" font-size="18" font-weight="bold">POSITIVE +</text>
+<text x="865" y="432" text-anchor="start" fill="#fb6472" font-family="Arial,sans-serif" font-size="19" font-weight="bold">VIN−</text>
+<text x="865" y="482" text-anchor="start" fill="#b8c1cb" font-family="Arial,sans-serif" font-size="18" font-weight="normal">VIN+  unused</text>
+<rect x="398" y="510" width="98" height="30" rx="6" fill="#101317" stroke="#fb6472" stroke-width="2"/>
+<text x="447" y="531" text-anchor="middle" fill="#fb6472" font-family="Arial,sans-serif" font-size="17" font-weight="bold">FUSE</text>
+<polyline points="340,575 655,575 655,255" fill="none" stroke="#c3cbd3" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="655" cy="255" r="6" fill="#c3cbd3"/>
+<text x="315" y="582" text-anchor="end" fill="#c3cbd3" font-family="Arial,sans-serif" font-size="18" font-weight="bold">NEGATIVE −</text>
+<text x="600" y="651" text-anchor="middle" fill="#f5ce70" font-family="Arial,sans-serif" font-size="18" font-weight="normal">VIN+ and VIN− are NOT battery + and −. The speedometer’s 12.6 V is fixed artwork.</text>
+</svg>
