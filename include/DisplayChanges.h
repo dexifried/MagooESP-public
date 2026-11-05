@@ -10,6 +10,7 @@ class DisplayChanges {
     if (t.theme==7)
       return t.tiltAvailable!=last_.tiltAvailable || t.pitch!=last_.pitch || t.roll!=last_.roll;
     if (t.theme==5 || t.theme==6) {
+      if (t.musicInstalled!=last_.musicInstalled) return true;
       if (textHash(t.trackTitle)!=titleHash_ || textHash(t.trackArtist)!=artistHash_ ||
           t.trackPosition!=last_.trackPosition || t.trackDuration!=last_.trackDuration ||
           t.trackArt!=last_.trackArt || t.trackPlaying!=last_.trackPlaying) return true;

@@ -44,7 +44,7 @@ with sync_playwright() as playwright:
         if path == '/playlist': return route.fulfill(json=[])
         if path == '/status': return route.fulfill(status=503, body='unavailable')
         if path == '/screen': return route.fulfill(status=204)
-        if path in ('/', '/dashboard.html', '/pairing.css', '/pairing.js', '/frame-delta.js', '/dashboard-polish.css') or path.endswith('.jpg'):
+        if path in ('/', '/dashboard.html', '/pairing.css', '/pairing.js', '/frame-delta.js','/music-installer.js','/music-pack.js', '/dashboard-polish.css') or path.endswith('.jpg'):
             return route.continue_()
         return route.fulfill(status=200, body='OK')
     page.route('**/*', intercept)

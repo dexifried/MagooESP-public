@@ -2,7 +2,7 @@
 #include "DashboardLayout.h"
 #include "PhoneControl.h"
 #include "HomeMap.h"
-#include "AlbumArt.h"
+#include "MusicPackage.h"
 #include "RobotoFont.h"
 #include <math.h>
 #include <stdio.h>
@@ -160,9 +160,17 @@ void home(GFXcanvas16& c,const Telemetry& d,uint16_t accent) {
 void music(GFXcanvas16& c,const Telemetry& d,uint16_t accent) {
   const uint16_t card=0x1082; c.fillScreen(0x0841);c.fillRoundRect(3,3,234,129,8,card);c.drawRoundRect(3,3,234,129,8,BORDER);
   label(c,11,7,"NOW PLAYING",small,MUTED,150);musicIcon(c,216,14,accent);
-  const uint16_t* art=d.trackArt==1?ART_LOVE:(d.trackArt==2?ART_GOODBYE:ART_EIGHT);
-  c.drawRGBBitmap(10,27,art,60,60);
-  label(c,80,30,d.trackTitle,medium,WHITE,148);label(c,80,47,d.trackArtist,small,MUTED,148);
+  MusicPackage::Layout layout{};
+  if(!MusicPackage::layout(layout)) {
+    label(c,20,48,"Install Music from the app",medium,WHITE,205);
+    return;
+  }
+  uint16_t row[60];
+  for(int y=0;y<60;y++) {
+    if(!MusicPackage::readRow(d.trackArt<3?d.trackArt:0,y,row))break;
+    c.drawRGBBitmap(layout.artX,layout.artY+y,row,60,1);
+  }
+  label(c,layout.titleX,layout.titleY,d.trackTitle,medium,WHITE,148);label(c,layout.artistX,layout.artistY,d.trackArtist,small,MUTED,148);
   label(c,80,64,"Preview - no audio",small,blend(MUTED,WHITE,25),145);
   c.fillRoundRect(10,93,218,3,1,0x39E7);
   const int filled=d.trackDuration?(int)(clampf((float)d.trackPosition/d.trackDuration,0,1)*218):0;

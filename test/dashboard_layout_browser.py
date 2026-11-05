@@ -34,7 +34,7 @@ with sync_playwright() as p:
         if path=='/view':data['view']=parse_qs(r.request.post_data or '')['value'][0];return r.fulfill(status=200,body='OK')
         if path=='/playlist':return r.fulfill(json=[])
         if path=='/screen':return r.fulfill(status=204)
-        if path in ('/','/dashboard.html','/pairing.css','/pairing.js','/frame-delta.js','/dashboard-polish.css') or path.endswith('.jpg'):return r.continue_()
+        if path in ('/','/dashboard.html','/pairing.css','/pairing.js','/frame-delta.js','/music-installer.js','/music-pack.js','/dashboard-polish.css') or path.endswith('.jpg'):return r.continue_()
         return r.fulfill(status=200,body='OK')
     page.route('**/*',handle);page.goto(f'http://127.0.0.1:{server.server_address[1]}/dashboard.html')
     page.locator('#vehicle-live.online').wait_for()

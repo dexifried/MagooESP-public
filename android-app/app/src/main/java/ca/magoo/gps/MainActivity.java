@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
   private static final String UPDATE_URL="https://magoo.dexifyz.com/api/android/update";
   private static final String DOWNLOAD_URL="https://magoo.dexifyz.com/";
   private static final Set<String> ASSETS = new HashSet<>(Arrays.asList(
-      "dashboard.html", "dashboard-polish.css", "pairing.css", "pairing.js", "frame-delta.js",
+      "dashboard.html", "dashboard-polish.css", "pairing.css", "pairing.js", "frame-delta.js", "music-installer.js", "music-pack.js",
       "hero.jpg", "home.jpg", "speed.jpg", "navigation.jpg", "music.jpg",
       "album/0.jpg", "album/1.jpg", "album/2.jpg"));
   private final ExecutorService network = Executors.newSingleThreadExecutor();

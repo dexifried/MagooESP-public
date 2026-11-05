@@ -14,7 +14,7 @@
 #include "DASHBOARD_NAVIGATION.h"
 #include "DASHBOARD_MUSIC.h"
 #include "DASHBOARD_HOME.h"
-#include "AlbumArt.h"
+#include "MusicPackage.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
@@ -73,6 +73,12 @@ String jsonString(const String& value) {
     else out += (char)c;
   }
   return out + "\"";
+}
+bool uintArgument(const String& value,uint32_t& result) {
+  if(!value.length() || value.length()>10)return false;
+  uint64_t n=0;
+  for(size_t i=0;i<value.length();i++) { if(value[i]<'0'||value[i]>'9')return false; n=n*10+(value[i]-'0');if(n>0xffffffffULL)return false; }
+  result=uint32_t(n);return true;
 }
 bool acceptsGzip(String encodings) {
   encodings.toLowerCase();
@@ -144,6 +150,7 @@ void serviceMirror() {
 
 }
 bool phoneControlBegin() {
+  MusicPackage::begin();
   prefs.begin("dashboard", false); selectedTheme = prefs.getUChar("theme", 0); selectedView = prefs.getUChar("view_mode", prefs.getBool("nav_view", selectedTheme == 4) ? 1 : 0); homeLayout = prefs.getUChar("home_layout", 0); homeStyle = prefs.getUChar("home_style", 0); if (homeStyle > 1) homeStyle = 0; bootAnimation = prefs.getBool("boot_anim", true); if (homeLayout > 2) homeLayout = 0; shuffle = prefs.getBool("shuffle", false); if (selectedView > 4) selectedView = 0; if (selectedTheme > 3) selectedTheme = 0; musicLastTick = millis();
   gearNeutralUs = prefs.getUShort("gear_neutral", 1500);
   gearForwardHigh = prefs.getBool("gear_high", true);
@@ -168,10 +175,34 @@ bool phoneControlBegin() {
   server.on("/navigation.jpg", HTTP_GET, [] { server.sendHeader("Cache-Control", "public, max-age=86400"); server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(DASHBOARD_NAVIGATION), DASHBOARD_NAVIGATION_SIZE); });
   server.on("/hero.jpg", HTTP_GET, [] { server.sendHeader("Cache-Control", "public, max-age=86400"); server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(DASHBOARD_HERO), DASHBOARD_HERO_SIZE); });
   server.on("/app.apk", HTTP_GET, [] { server.sendHeader("Location", "https://magoo.dexifyz.com/"); server.send(302, "text/plain", "Open Magoo download"); });
+  server.on("/modules/music", HTTP_GET, [] {
+    server.send(200,"application/json",String("{\"installed\":")+(MusicPackage::ready()?"true":"false")+",\"installing\":"+(MusicPackage::busy()?"true":"false")+",\"version\":1,\"checksum\":"+MusicPackage::checksum()+"}");
+  });
+  server.on("/modules/music/start", HTTP_POST, [] {
+    uint32_t size=0,token=0;
+    if(winchDirection()!='S'){server.send(409,"text/plain","Release the winch before installing");return;}
+    if(!uintArgument(server.arg("size"),size)){server.send(400,"text/plain","Invalid package size");return;}
+    winchSet('S'); delay(30); // Let the dedicated PWM task emit neutral before flash writes.
+    if(!MusicPackage::start(size,token)){server.send(503,"text/plain",MusicPackage::error());return;}
+    server.send(200,"application/json",String("{\"token\":")+token+"}");
+  });
+  server.on("/modules/music/chunk", HTTP_POST, [] {
+    uint32_t token=0,offset=0;
+    if(!uintArgument(server.arg("token"),token)||!uintArgument(server.arg("offset"),offset)){server.send(400,"text/plain","Invalid package request");return;}
+    if(!MusicPackage::append(token,offset,server.arg("data"))){server.send(400,"text/plain",MusicPackage::error());return;}
+    server.send(200,"text/plain","OK");
+  });
+  server.on("/modules/music/finish", HTTP_POST, [] {
+    uint32_t token=0;
+    if(!uintArgument(server.arg("token"),token)){server.send(400,"text/plain","Invalid package request");return;}
+    if(!MusicPackage::finish(token)){server.send(400,"text/plain",MusicPackage::error());return;}
+    server.send(200,"text/plain","OK");
+  });
   server.on("/winch", HTTP_POST, [] {
     const String direction = server.arg("direction");
     const char command = direction == "out" ? 'O' : direction == "in" ? 'I' : direction == "stop" ? 'S' : '?';
     if (command == '?') { server.send(400, "text/plain", "Invalid direction"); return; }
+    if (command != 'S' && MusicPackage::busy()) { server.send(409, "text/plain", "Wait for screen installation"); return; }
     long speed = 100;
     if (server.hasArg("speed")) {
       const String value = server.arg("speed"); char* end = nullptr;
@@ -386,9 +417,12 @@ bool phoneControlBegin() {
   server.on("/layout", HTTP_POST, [] { const String value = server.arg("value"); if (value != "0" && value != "1" && value != "2") { server.send(400, "text/plain", "Invalid layout"); return; } phoneActivity = true; homeLayout = value.toInt(); prefs.putUChar("home_layout", homeLayout); server.send(200, "text/plain", "OK"); });
   server.on("/playlist", HTTP_GET, [] { String json = "["; for (int i=0; i<TRACK_COUNT; i++) { if (i) json += ","; json += String("{\"title\":") + jsonString(tracks[i].title) + ",\"artist\":" + jsonString(tracks[i].artist) + "}"; } json += "]"; server.send(200, "application/json", json); });
   server.on("/music", HTTP_POST, [] { const String action = server.arg("action"); if (action == "next") { trackIndex = nextTrack(); musicPositionMs = 0; } else if (action == "previous") { trackIndex = (trackIndex + TRACK_COUNT - 1) % TRACK_COUNT; musicPositionMs = 0; } else if (action == "toggle") { musicPlaying = !musicPlaying; } else if (action == "shuffle") { shuffle = !shuffle; prefs.putBool("shuffle", shuffle); } else if (action == "select") { const String item=server.arg("track"); char* end=nullptr; long n=strtol(item.c_str(), &end, 10); if (end==item.c_str() || *end || n<0 || n>=TRACK_COUNT) { server.send(400, "text/plain", "Invalid track"); return; } trackIndex=(int)n; musicPositionMs=0; musicPlaying=true; } else { server.send(400, "text/plain", "Invalid action"); return; } musicLastTick = millis(); phoneActivity = true; server.send(200, "text/plain", "OK"); });
-  server.on("/album/0.jpg", HTTP_GET, [] { server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(JPG_EIGHT), sizeof(JPG_EIGHT)); });
-  server.on("/album/1.jpg", HTTP_GET, [] { server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(JPG_LOVE), sizeof(JPG_LOVE)); });
-  server.on("/album/2.jpg", HTTP_GET, [] { server.send_P(200, "image/jpeg", reinterpret_cast<PGM_P>(JPG_GOODBYE), sizeof(JPG_GOODBYE)); });
+  for(unsigned i=0;i<3;i++)server.on(String("/album/")+i+".jpg",HTTP_GET,[i] {
+    size_t length=MusicPackage::jpegSize(i),offset=0;
+    if(!length){server.send(404,"text/plain","Install Music from the app");return;}
+    server.setContentLength(length);server.send(200,"image/jpeg","");
+    uint8_t block[512];while(length){size_t count=min(length,sizeof(block));if(!MusicPackage::readJpeg(i,offset,block,count))break;server.sendContent(reinterpret_cast<const char*>(block),count);offset+=count;length-=count;}
+  });
   server.on("/mode", HTTP_POST, [] { const String value = server.arg("demo"); if (value != "0" && value != "1") { server.send(400, "text/plain", "Invalid mode"); return; } phoneActivity = true; demo = value == "1"; if (!demo) selectedSpeed = 0; server.send(200, "text/plain", "OK"); });
   server.on("/scan", HTTP_POST, [] {
     if (server.client().localIP() != WiFi.softAPIP()) { server.send(403, "text/plain", "Connect to MagooESP"); return; }
@@ -434,6 +468,7 @@ bool phoneControlBegin() {
   Serial.printf("Phone Wi-Fi: MagooESP; address: http://%s\n", WiFi.softAPIP().toString().c_str()); return true;
 }
 void phoneControlPoll() {
+  MusicPackage::expire();
   const uint32_t driveNow=millis();
   const ThrottleReading throttle=throttleRead();
   const char command=throttle.valid
@@ -509,7 +544,7 @@ void phoneControlPoll() {
     startNetworkScan(true);
   }
 }
-Telemetry phoneControlTelemetry() { Telemetry t; const ThrottleReading throttle = throttleRead(); const ImuReading tilt = imuReading(); const BatteryReading battery = batteryReading(); t.voltageAvailable = battery.voltageAvailable; t.voltage = battery.voltage; t.driveDirection = driveReading.gear; t.tiltAvailable = tilt.valid; t.pitch = tilt.pitch; t.roll = tilt.roll; t.colorTheme = selectedTheme; t.homeMapStyle = homeStyle; t.speedKph = driveReading.speed; t.speedAvailable = true; t.rpm = driveReading.rpm; t.rpmAvailable = true; t.theme = selectedView == 4 ? 7 : selectedView == 3 ? (homeLayout == 1 ? 4 : (homeLayout == 2 ? 5 : 6)) : (selectedView == 2 ? 5 : (selectedView == 1 ? 4 : selectedTheme)); t.demo = !throttle.valid; t.trackTitle=tracks[trackIndex].title; t.trackArtist=tracks[trackIndex].artist; t.trackDuration=tracks[trackIndex].duration; t.trackPosition=musicPositionMs/1000; t.trackArt=tracks[trackIndex].art; t.trackPlaying=musicPlaying; return t; }
+Telemetry phoneControlTelemetry() { Telemetry t; const ThrottleReading throttle = throttleRead(); const ImuReading tilt = imuReading(); const BatteryReading battery = batteryReading(); t.voltageAvailable = battery.voltageAvailable; t.voltage = battery.voltage; t.driveDirection = driveReading.gear; t.tiltAvailable = tilt.valid; t.pitch = tilt.pitch; t.roll = tilt.roll; t.colorTheme = selectedTheme; t.homeMapStyle = homeStyle; t.speedKph = driveReading.speed; t.speedAvailable = true; t.rpm = driveReading.rpm; t.rpmAvailable = true; t.theme = selectedView == 4 ? 7 : selectedView == 3 ? (homeLayout == 1 ? 4 : (homeLayout == 2 ? 5 : 6)) : (selectedView == 2 ? 5 : (selectedView == 1 ? 4 : selectedTheme)); t.demo = !throttle.valid; t.trackTitle=tracks[trackIndex].title; t.trackArtist=tracks[trackIndex].artist; t.trackDuration=tracks[trackIndex].duration; t.trackPosition=musicPositionMs/1000; t.trackArt=tracks[trackIndex].art; t.trackPlaying=musicPlaying; t.musicInstalled=MusicPackage::ready(); return t; }
 
 
 

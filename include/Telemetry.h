@@ -10,6 +10,7 @@ struct Telemetry {
   uint16_t trackPosition = 0, trackDuration = 0;
   uint8_t trackArt = 0;
   bool trackPlaying = false;
+  bool musicInstalled = false;
   float speedKph = 0;
   float rpm = 0;
   float voltage = 0;

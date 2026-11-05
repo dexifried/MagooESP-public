@@ -88,7 +88,7 @@ with sync_playwright() as p:
   if path=='/screen-delta':legacy_deltas.append(1);return r.fulfill(status=404,body='Not found')
   if path=='/winch/status':return r.fulfill(json={'ready':True,'reversed':False,'direction':'S'})
   if path=='/playlist':return r.fulfill(json=[])
-  if path in ('/dashboard.html','/pairing.css','/dashboard-polish.css','/pairing.js','/frame-delta.js') or path.endswith('.jpg'):return r.continue_()
+  if path in ('/dashboard.html','/pairing.css','/dashboard-polish.css','/pairing.js','/frame-delta.js','/music-installer.js','/music-pack.js') or path.endswith('.jpg'):return r.continue_()
   return r.fulfill(status=200,body='OK')
  legacy.route('**/*',legacy_handle)
  legacy.goto('http://127.0.0.1:'+str(server.server_address[1])+'/dashboard.html?app=1')

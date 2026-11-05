@@ -19,11 +19,28 @@
 <section class="pair-screen" data-pair-screen="connecting" hidden><div class="pair-intro"><div class="pair-mark"><span class="pair-spinner" aria-hidden="true"></span></div><h1 tabindex="-1">Connecting Magoo</h1><p class="pair-lead">Joining <strong id="pair-connecting-name"></strong>. This can take a little while.</p></div><div class="pair-note">Your phone may briefly disconnect from MagooESP while the connection changes.</div></section>
 <section class="pair-screen" data-pair-screen="success" hidden><div class="pair-intro"><div class="pair-mark good"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg></div><h1 tabindex="-1">You’re connected</h1><p class="pair-lead">Magoo joined <strong id="pair-success-name"></strong> and will remember it for next time.</p></div><div class="pair-note">To use the dashboard on this network, connect your phone to the same Wi-Fi and open <strong>magooesp.local</strong>.</div><div class="pair-actions"><button id="pair-done" class="pair-primary" type="button">Done</button></div></section>
 <section class="pair-screen" data-pair-screen="failed" hidden><div class="pair-intro"><div class="pair-mark"><svg viewBox="0 0 24 24"><path d="M12 4v9m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg></div><h1 tabindex="-1">Let’s try that again</h1><p class="pair-lead" id="pair-failure-message"></p></div><div class="pair-actions"><button id="pair-try-again" class="pair-primary" type="button">Back to setup</button></div></section>
-</div></dialog><script src="/frame-delta.js"></script><script>
-const nativeApp=new URLSearchParams(location.search).get('app')==='1';const $=id=>document.getElementById(id),themes=$('themes');let currentTheme=0,currentView='speedometer',currentLayout=0;const names=['Jeep red','Electric blue','Desert amber','Trail green'];const colors=['#ef3038','#36bef0','#e9a23b','#54ca81'];
+</div></dialog><script src="/frame-delta.js"></script><script src="/music-installer.js"></script><script>
+const nativeApp=new URLSearchParams(location.search).get('app')==='1';const $=id=>document.getElementById(id),themes=$('themes');const musicHint=document.createElement('p');musicHint.id='music-install-status';musicHint.className='caption';musicHint.setAttribute('role','status');musicHint.hidden=true;document.querySelector('#view-music').parentElement.insertAdjacentElement('afterend',musicHint);let currentTheme=0,currentView='speedometer',currentLayout=0;const names=['Jeep red','Electric blue','Desert amber','Trail green'];const colors=['#ef3038','#36bef0','#e9a23b','#54ca81'];
 function makeThemes(){themes.replaceChildren();names.forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.className='theme'+(i===currentTheme?' selected':'');b.setAttribute('aria-label',name);b.setAttribute('aria-pressed',String(i===currentTheme));b.innerHTML='<span class="preview" style="--accent:'+colors[i]+'"><strong>00</strong><small>KM/H</small></span><span class="label">'+name+'</span>';b.onclick=async()=>{if(await post('/theme',{value:i})){currentTheme=i;makeThemes()}};themes.append(b)})}makeThemes();
 function updateViews(){$('gear-shortcut-card').hidden=currentView!=='speedometer';$('home-shortcut-card').hidden=currentView!=='home';$('tilt-controls').hidden=currentView!=='tilt';$('gps-controls').hidden=currentView!=='navigation';$('music-controls').hidden=currentView!=='music'&&!(currentView==='home'&&currentLayout===2);for(const [id,selected] of [['view-home',currentView==='home'],['view-speed',currentView==='speedometer'],['view-nav',currentView==='navigation'],['view-music',currentView==='music'],['view-tilt',currentView==='tilt']]){const button=$(id);button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected))}if(typeof window.__magooGpsViewChanged==='function')window.__magooGpsViewChanged()}
-async function chooseView(view){if(await post('/view',{value:view})){currentView=view;updateViews()}}
+let musicInstallActive=false;
+async function loadMusicPackage(){
+ if(window.__magooMusicPack)return window.__magooMusicPack;
+ await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='/music-pack.js';s.onload=resolve;s.onerror=()=>{s.remove();reject(new Error('Music package is unavailable in this app'))};document.head.appendChild(s)});
+ if(!window.__magooMusicPack)throw new Error('Music package is unavailable in this app');return window.__magooMusicPack;
+}
+async function chooseView(view){
+ if(view==='music'&&nativeApp){
+  if(musicInstallActive)return;musicInstallActive=true;
+  const message=$('music-install-status');message.hidden=false;
+  try{releaseWinch();await window.magooInstallMusic({loadPackage:loadMusicPackage,progress:text=>message.textContent=text,
+   request:(path,data)=>fetchTimed(path,data?{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data)}:{},path.endsWith('/start')?30000:6000)});
+   message.textContent='Music is ready';
+  }catch(e){message.textContent=e.message||'Could not install Music';musicInstallActive=false;return}
+  musicInstallActive=false;
+ }
+ if(await post('/view',{value:view})){currentView=view;updateViews()}
+}
 $('view-home').onclick=()=>chooseView('home');$('view-speed').onclick=()=>chooseView('speedometer');$('view-nav').onclick=()=>chooseView('navigation');$('view-music').onclick=()=>chooseView('music');$('view-tilt').onclick=()=>chooseView('tilt');$('tilt-zero').onclick=()=>calibrateTilt('tilt-zero','tilt-message');$('settings-tilt-zero').onclick=()=>calibrateTilt('settings-tilt-zero','settings-tilt-message');updateViews();
 async function fetchTimed(path,options={},timeout=6000){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);try{return await fetch(path,{...options,signal:controller.signal})}finally{clearTimeout(timer)}}
 let winchDesired='stop',winchBusy=false,winchPointer=null;

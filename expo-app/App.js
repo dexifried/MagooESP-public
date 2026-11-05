@@ -12,8 +12,8 @@ const HOST_KEY = 'magoo:address';
 const DEFAULT_HOST = 'magooesp.local';
 const AP_HOST = '192.168.4.1';
 const MAX_TILES = 100;
-const GET_PATHS = new Set(['/status', '/winch/status', '/screen', '/playlist', '/networks']);
-const POST_PATHS = new Set(['/appearance', '/gear/calibrate', '/layout', '/map', '/map/refresh', '/music', '/scan', '/screen-delta', '/sleep', '/startup', '/theme', '/tilt/zero', '/touch', '/view', '/wifi', '/winch', '/winch/reverse']);
+const GET_PATHS = new Set(['/status', '/winch/status', '/screen', '/playlist', '/networks', '/modules/music']);
+const POST_PATHS = new Set(['/appearance', '/gear/calibrate', '/layout', '/map', '/map/refresh', '/music', '/modules/music/start', '/modules/music/chunk', '/modules/music/finish', '/scan', '/screen-delta', '/sleep', '/startup', '/theme', '/tilt/zero', '/touch', '/view', '/wifi', '/winch', '/winch/reverse']);
 const postOptions = body => ({ method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
 
 function validHost(value) { return /^[a-zA-Z0-9.-]{1,253}$/.test(value) && !value.startsWith('.') && !value.endsWith('.'); }
@@ -156,7 +156,7 @@ function Magoo() {
       } else if (path === '/winch' && !foreground.current && message.body !== 'direction=stop') {
         result.error = 'Winch controls are unavailable in the background';
       } else {
-        const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 6000);
+        const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), path === '/modules/music/start' ? 30000 : 6000);
         requests.current.set(id, { controller, path, body: message.body });
         try {
           const options = { method, signal: controller.signal };

@@ -28,7 +28,8 @@ def build_dashboard(root=Path('.')):
  # define album art before its main script so a fast response cannot race it.
  marker='<script>window.__magooAlbum='+json.dumps(images)+';</script>'
  network=(root/'expo-app/network-web.js').read_text(encoding='utf-8-sig')
- prelude=marker+'<script>'+network+'</script>'
+ package=(root/'web/music-pack.js').read_text(encoding='utf-8')
+ prelude=marker+'<script>'+network+'</script><script>'+package+'</script>'
  page=page.replace(marker,'').replace('<script>\nconst nativeApp=true;',prelude+'<script>\nconst nativeApp=true;')
  if prelude not in page or 'window.__magooApplyLocation' not in page:raise ValueError('Expo injection failed')
  return page
